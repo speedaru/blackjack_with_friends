@@ -236,7 +236,6 @@ export function initWaiting(): void {
   });
   $('start-btn').addEventListener('click', () => send({ type: 'start_game' }));
   $('reset-btn-wait').addEventListener('click', resetChips);
-  $('payback-btn-wait').addEventListener('click', () => send({ type: 'pay_back' }));
   $('share-btn').addEventListener('click', () => void shareLink());
   $('share-copy').addEventListener('click', () => void copyShareLink());
   $<HTMLInputElement>('share-link').addEventListener('focus', (e) => (e.target as HTMLInputElement).select());
@@ -296,9 +295,8 @@ function playerRow(s: TableState, p: PlayerView, host: boolean): HTMLElement {
   if (p.id === app.myId) nameLine.append(h('span', 'tag', 'You'));
   if (p.id === s.hostId) nameLine.append(h('span', 'tag tag-accent', 'Host'));
   if (!p.connected) nameLine.append(h('span', 'tag', 'Away'));
-  const owes = p.debt > 0 ? ` · owes ${fmt(p.debt)}` : '';
   const earned = ` · earnings ${fmtSigned(p.earnings)}`;
-  who.append(nameLine, h('span', p.debt > 0 ? 'who-chips has-debt num' : 'who-chips num', `${fmt(p.chips)} chips${owes}${earned}`));
+  who.append(nameLine, h('span', p.earnings < 0 ? 'who-chips has-debt num' : 'who-chips num', `${fmt(p.chips)} chips${earned}`));
   const status = h('span', p.ready ? 'ready-pill is-ready' : 'ready-pill', p.ready ? 'Ready' : 'Not ready');
   li.append(avatar, who, status);
   if (host && p.id !== app.myId) {
@@ -322,10 +320,6 @@ export function renderWaiting(s: TableState, self: PlayerView): void {
   $('player-count').textContent = `${s.players.length} / ${s.settings.maxPlayers}`;
 
   $('player-list').replaceChildren(...s.players.map((p) => playerRow(s, p, host)));
-
-  const canPay = self.debt > 0 && self.chips > 0;
-  $('payback-btn-wait').hidden = !canPay;
-  if (canPay) $('payback-label').textContent = `Pay back ${fmt(Math.min(self.chips, self.debt))}`;
 
   const ready = $<HTMLButtonElement>('ready-btn');
   ready.replaceChildren(icon('check'), self.ready ? 'Ready' : "I'm ready");

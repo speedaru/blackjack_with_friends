@@ -142,15 +142,37 @@ export interface HandView {
   delta: number | null;
 }
 
+// ------------------------------------------------------------ side bets
+
+/** `pairs` is Perfect Pairs (the first two cards), `plus3` is 21+3 (the first two cards and the dealer's up card). */
+export type SideBetKind = 'pairs' | 'plus3';
+
+export const SIDE_BET_KINDS: SideBetKind[] = ['pairs', 'plus3'];
+
+export const SIDE_BET_NAMES: Record<SideBetKind, string> = { pairs: 'Perfect Pairs', plus3: '21+3' };
+
+/** Which side bets a player takes with their bet. Each one stakes the minimum bet. */
+export type SideBetChoice = Partial<Record<SideBetKind, boolean>>;
+
+export interface SideBetView {
+  kind: SideBetKind;
+  bet: number;
+  /** Name of the winning combination ("Perfect pair", "Flush"…), or null while unsettled or when it lost. */
+  result: string | null;
+  /** Net chip change, set once the side bet is settled right after the deal. */
+  delta: number | null;
+}
+
 export interface PlayerView {
   id: string;
   name: string;
   chips: number;
   ready: boolean;
   connected: boolean;
-  /** Chips borrowed to buy back in and not paid back. Net worth is `chips - debt`. */
-  debt: number;
-  /** Running profit or loss from the cards since the last reset. Positive or negative. */
+  /**
+   * Running result since the last reset. Losses and borrowing push it down, wins and withdrawals push it
+   * up. Below 0 the player is in debt and can withdraw chips to bring it back up.
+   */
   earnings: number;
   /** Seat index, or null when watching or waiting for a seat. */
   seat: number | null;
@@ -160,6 +182,8 @@ export interface PlayerView {
   activeHand: number;
   /** True only on this player's turn, when splitting is allowed right now. */
   canSplit: boolean;
+  /** Side bets placed with this round's bet, settled right after the deal. Empty when none. */
+  sideBets: SideBetView[];
 }
 
 export interface DealerView {
@@ -209,11 +233,11 @@ export type ClientMsg =
   | { type: 'set_ready'; ready: boolean }
   | { type: 'update_settings'; settings: Partial<Settings> }
   | { type: 'start_game' }
-  | { type: 'place_bet'; amount: number }
+  | { type: 'place_bet'; amount: number; sideBets?: SideBetChoice }
   | { type: 'action'; action: ActionName }
   | { type: 'reset_chips' }
   | { type: 'borrow' }
-  | { type: 'pay_back' }
+  | { type: 'withdraw'; amount: number }
   | { type: 'kick_player'; playerId: string };
 
 export type ErrorCode =
@@ -239,7 +263,7 @@ export type ErrorCode =
   | 'unknown_player'
   | 'cannot_reset'
   | 'cannot_borrow'
-  | 'cannot_pay_back';
+  | 'cannot_withdraw';
 
 export interface RoundResultEntry {
   playerId: string;

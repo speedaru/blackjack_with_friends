@@ -566,6 +566,67 @@ describe('all in', () => {
   });
 });
 
+// --------------------------------------------------------------- side bets
+
+describe('side bets', () => {
+  it('stakes the minimum bet per side bet and pays them right after the deal', async () => {
+    // Deal order: Alex, Bob, dealer up, Alex, Bob, hole.
+    // Alex 8H 8H is a perfect pair (25:1); Bob 5D 7D with the 6D up card is a straight flush (40:1).
+    const rigged = cards('8H 5D 6D 8H 7D 10S');
+    const { alex, bob } = await twoPlayers({ rigged, timing: { bettingMs: 5000, turnMs: 5000 } });
+    alex.send({ type: 'start_game' });
+    await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
+    alex.send({ type: 'place_bet', amount: 100, sideBets: { pairs: true, plus3: true } });
+    const placed = await alex.waitForState((s) => betOf(alex.me(s)) === 100);
+    expect(alex.me(placed).chips).toBe(880);
+    expect(alex.me(placed).sideBets.map((sb) => [sb.kind, sb.bet])).toEqual([['pairs', 10], ['plus3', 10]]);
+    expect(placed.log.some((e) => e.text === 'Alex bets 100 + Perfect Pairs and 21+3')).toBe(true);
+    bob.send({ type: 'place_bet', amount: 50, sideBets: { plus3: true } });
+
+    const st = await alex.waitForState((s) => s.phase === 'player_turns');
+    const a = alex.me(st);
+    expect(a.chips).toBe(880 + 10 + 250);
+    expect(a.earnings).toBe(240);
+    expect(a.sideBets).toEqual([
+      { kind: 'pairs', bet: 10, result: 'Perfect pair', delta: 250 },
+      { kind: 'plus3', bet: 10, result: null, delta: -10 },
+    ]);
+    const b = bob.me(st);
+    expect(b.chips).toBe(940 + 10 + 400);
+    expect(b.sideBets).toEqual([{ kind: 'plus3', bet: 10, result: 'Straight flush', delta: 400 }]);
+    expect(st.log.some((e) => e.text === 'Alex: Perfect pair on Perfect Pairs, +250')).toBe(true);
+    expect(st.log.some((e) => e.text === 'Alex loses 21+3')).toBe(true);
+    expect(alex.errors).toEqual([]);
+    expect(bob.errors).toEqual([]);
+  });
+
+  it('refuses side bets the chips do not cover, and counts them toward all in', async () => {
+    const { alex, bob } = await twoPlayers({ timing: { bettingMs: 5000 } });
+    alex.send({ type: 'start_game' });
+    await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
+    const err = await alex.expectError({ type: 'place_bet', amount: 990, sideBets: { pairs: true, plus3: true } });
+    expect(err.code).toBe('insufficient_chips');
+    expect((await alex.expectError({ type: 'place_bet', amount: 100, sideBets: 'yes' as never })).code).toBe('bet_invalid');
+    alex.send({ type: 'place_bet', amount: 980, sideBets: { pairs: true, plus3: true } });
+    const st = await alex.waitForState((s) => betOf(alex.me(s)) === 980);
+    expect(alex.me(st).chips).toBe(0);
+    expect(alex.me(st).hands[0]!.allIn).toBe(true);
+  });
+
+  it('gives side bet stakes back to a player who leaves before the deal', async () => {
+    const { srv, alex, bob } = await twoPlayers({ timing: { bettingMs: 5000 } });
+    alex.send({ type: 'start_game' });
+    await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
+    bob.send({ type: 'place_bet', amount: 100, sideBets: { pairs: true } });
+    await alex.waitForState((s) => s.players.some((p) => p.id === bob.id && betOf(p) === 100));
+    bob.send({ type: 'leave' });
+    await alex.waitForState((s) => !s.players.some((p) => p.id === bob.id));
+    const again = await h.client(srv);
+    expect((await again.join('Bob')).type).toBe('joined');
+    expect(again.me().chips).toBe(1000);
+  });
+});
+
 // ------------------------------------------------------------------- split
 
 /**
@@ -790,7 +851,7 @@ describe('shoe reshuffles', () => {
 });
 
 describe('borrowing', () => {
-  it('lets a player with no chips borrow a buy-in, keeps the debt across a restart, and clears it on reset', async () => {
+  it('lets a player with no chips borrow a buy-in, keeps the earnings across a restart, and clears them on reset', async () => {
     const rigged = cards('10 10 8 9'); // Alex 18 against 19
     const first = await h.boot({ rigged, timing: { settleMs: 200, bettingMs: 5000, turnMs: 5000 } });
     const alex = await h.client(first.srv);
@@ -807,7 +868,6 @@ describe('borrowing', () => {
     alex.send({ type: 'action', action: 'stand' });
     const lost = await alex.waitForState((s) => s.phase === 'settle');
     expect(alex.me(lost).chips).toBe(0);
-    expect(alex.me(lost).debt).toBe(0);
     expect(alex.me(lost).earnings).toBe(-1000);
 
     // Not while results are showing, only while bets are being placed.
@@ -815,30 +875,28 @@ describe('borrowing', () => {
     await alex.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
 
     alex.send({ type: 'borrow' });
-    const borrowed = await alex.waitForState((s) => alex.me(s).debt === 1000);
-    expect(alex.me(borrowed).chips).toBe(1000);
-    expect(alex.me(borrowed).earnings).toBe(-1000); // borrowing is not a win
-    expect(borrowed.log.some((e) => e.text === 'Alex borrows 1,000 and now owes 1,000')).toBe(true);
+    const borrowed = await alex.waitForState((s) => alex.me(s).chips === 1000);
+    expect(alex.me(borrowed).earnings).toBe(-1000); // the loss already put the earnings there, borrowing keeps them
+    expect(borrowed.log.some((e) => e.text === 'Alex borrows 1,000')).toBe(true);
     expect(JSON.parse(readFileSync(join(first.dataDir, 'players.json'), 'utf8'))).toEqual({
-      Alex: { chips: 1000, debt: 1000, earnings: -1000 },
+      Alex: { chips: 1000, earnings: -1000 },
     });
 
     // Chips in hand again, so a second loan is refused.
     expect((await alex.expectError({ type: 'borrow' })).code).toBe('cannot_borrow');
 
-    // The tab survives a restart.
+    // The earnings survive a restart.
     await first.srv.close();
     const second = await h.boot({}, first.dataDir);
     const back = await h.client(second.srv);
     await back.join('Alex');
     expect(back.me().chips).toBe(1000);
-    expect(back.me().debt).toBe(1000);
     expect(back.me().earnings).toBe(-1000);
 
-    // Resetting chips wipes the tab.
+    // Resetting chips wipes them.
     back.send({ type: 'reset_chips' });
-    await back.waitForState((s) => back.me(s).debt === 0);
-    expect(back.me().earnings).toBe(0);
+    await back.waitForState((s) => back.me(s).earnings === 0);
+    expect(back.me().chips).toBe(1000);
     expect(JSON.parse(readFileSync(join(first.dataDir, 'players.json'), 'utf8')).Alex).toBe(1000);
   });
 });
@@ -906,13 +964,16 @@ describe('closing the game', () => {
   });
 });
 
-describe('paying back', () => {
-  it('pays borrowed chips back out of the chips without touching the earnings, and only before betting', async () => {
+describe('withdrawing', () => {
+  /** Boots a table where Alex loses everything, then waits for the next betting phase. */
+  async function brokeAlex() {
     const rigged = cards('10 10 8 9'); // Alex 18 against 19
     const { srv } = await h.boot({ rigged, timing: { settleMs: 150, bettingMs: 5000, turnMs: 5000 } });
     const alex = await h.client(srv);
     await alex.join('Alex', { hostToken: srv.hostToken });
-    expect((await alex.expectError({ type: 'pay_back' })).code).toBe('cannot_pay_back'); // owes nothing
+    // Not in debt yet: the starting chips are not a loan.
+    expect(alex.me().earnings).toBe(0);
+    expect((await alex.expectError({ type: 'withdraw', amount: 1 })).code).toBe('cannot_withdraw');
     alex.send({ type: 'set_ready', ready: true });
     alex.send({ type: 'start_game' });
     await alex.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
@@ -921,14 +982,57 @@ describe('paying back', () => {
     alex.send({ type: 'action', action: 'stand' });
     await alex.waitForState((s) => s.phase === 'settle');
     await alex.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
-    alex.send({ type: 'borrow' });
-    await alex.waitForState((s) => alex.me(s).debt === 1000);
+    return alex;
+  }
 
-    // The loan came in as chips, so paying it back takes those chips away again.
-    alex.send({ type: 'pay_back' });
-    const paid = await alex.waitForState((s) => alex.me(s).debt === 0);
-    expect(alex.me(paid)).toMatchObject({ chips: 0, debt: 0, earnings: -1000 });
-    expect(paid.log.some((e) => e.text === 'Alex pays back 1,000 and owes nothing')).toBe(true);
-    expect((await alex.expectError({ type: 'pay_back' })).code).toBe('cannot_pay_back');
+  it('moves chips onto the earnings, never more than the chips or the debt, and only before betting', async () => {
+    const alex = await brokeAlex();
+    expect(alex.me()).toMatchObject({ chips: 0, earnings: -1000 });
+    expect((await alex.expectError({ type: 'withdraw', amount: 1 })).code).toBe('cannot_withdraw'); // no chips
+
+    alex.send({ type: 'borrow' });
+    await alex.waitForState((s) => alex.me(s).chips === 1000);
+    expect(alex.me().earnings).toBe(-1000);
+
+    for (const amount of [0, -5, 1.5, 1001, Number.NaN]) {
+      expect((await alex.expectError({ type: 'withdraw', amount })).code).toBe('cannot_withdraw');
+    }
+
+    // Half of it: the chips go down and the earnings come up by the same amount.
+    alex.send({ type: 'withdraw', amount: 500 });
+    const half = await alex.waitForState((s) => alex.me(s).chips === 500);
+    expect(alex.me(half).earnings).toBe(-500);
+    expect(half.log.some((e) => e.text === 'Alex withdraws 500')).toBe(true);
+
+    // Nothing above what is left in chips, and the rest clears the debt.
+    expect((await alex.expectError({ type: 'withdraw', amount: 501 })).code).toBe('cannot_withdraw');
+    alex.send({ type: 'withdraw', amount: 500 });
+    await alex.waitForState((s) => alex.me(s).earnings === 0);
+    expect(alex.me().chips).toBe(0);
+    expect((await alex.expectError({ type: 'withdraw', amount: 1 })).code).toBe('cannot_withdraw'); // not in debt any more
+  });
+
+  it('lets a player who withdrew everything borrow again, which puts them back in debt', async () => {
+    const alex = await brokeAlex();
+    alex.send({ type: 'borrow' });
+    await alex.waitForState((s) => alex.me(s).chips === 1000);
+    alex.send({ type: 'withdraw', amount: 1000 });
+    await alex.waitForState((s) => alex.me(s).earnings === 0);
+    expect(alex.me()).toMatchObject({ chips: 0, earnings: 0 });
+
+    alex.send({ type: 'borrow' });
+    await alex.waitForState((s) => alex.me(s).chips === 1000);
+    expect(alex.me().earnings).toBe(-1000); // the new buy-in is owed
+  });
+
+  it('is refused once the player has bet', async () => {
+    const alex = await brokeAlex();
+    alex.send({ type: 'borrow' });
+    await alex.waitForState((s) => alex.me(s).chips === 1000);
+    alex.send({ type: 'withdraw', amount: 400 });
+    await alex.waitForState((s) => alex.me(s).chips === 600);
+    alex.send({ type: 'place_bet', amount: 100 });
+    await alex.waitForState((s) => alex.me(s).hands[0]?.bet === 100);
+    expect((await alex.expectError({ type: 'withdraw', amount: 100 })).code).toBe('cannot_withdraw');
   });
 });

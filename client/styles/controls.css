@@ -25,6 +25,7 @@
   grid-template-columns: auto 1fr;
   grid-template-areas:
     'head chips'
+    'sides sides'
     'actions actions';
   align-items: center;
   gap: 14px 24px;
@@ -128,6 +129,43 @@
 
 .chip-btn:disabled {
   opacity: 0.32;
+}
+
+.side-row {
+  grid-area: sides;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.side-toggle {
+  height: 36px;
+  padding: 0 12px;
+  gap: 8px;
+}
+
+.side-toggle .side-cost {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.side-toggle[aria-pressed='true'] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.side-toggle[aria-pressed='true'] .side-cost {
+  color: inherit;
+}
+
+.side-toggle:disabled {
+  opacity: 0.4;
+}
+
+.bet-panel.out-of-chips .side-row {
+  display: none;
 }
 
 .bet-actions {

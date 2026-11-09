@@ -1,6 +1,6 @@
 // Betting panel and action buttons under the felt, plus their keyboard shortcuts.
 
-import type { ActionName } from '../shared/types.js';
+import { SIDE_BET_KINDS, type ActionName, type SideBetChoice, type SideBetKind } from '../shared/types.js';
 import { app, me, send } from './app.js';
 import { openBorrowPrompt } from './borrow.js';
 import { slideFrom, ringEl } from './cards.js';
@@ -26,11 +26,33 @@ export function clearBusy(): void {
   actionBusy = false;
 }
 
-/** Most chips the player may bet right now. */
+/** Side bets the player has switched on. Kept between rounds, like the last bet. */
+const sideChoice = new Set<SideBetKind>();
+
+/** Chips the chosen side bets cost: each one stakes the minimum bet. */
+function sideCost(): number {
+  const s = app.state;
+  return s ? sideChoice.size * s.settings.minBet : 0;
+}
+
+function sideBetsMsg(): SideBetChoice {
+  const out: SideBetChoice = {};
+  for (const k of sideChoice) out[k] = true;
+  return out;
+}
+
+/** Most chips the player may put on the main bet right now, after the side bets. */
 function betCap(): number {
   const s = app.state;
   const self = me();
-  return s && self ? self.chips : 0;
+  return s && self ? Math.max(0, self.chips - sideCost()) : 0;
+}
+
+function toggleSide(kind: SideBetKind): void {
+  if (sideChoice.has(kind)) sideChoice.delete(kind);
+  else sideChoice.add(kind);
+  playChip();
+  setPending(pendingBet); // the side bet may leave less room for the main bet
 }
 
 function setPending(value: number, from?: Element): void {
@@ -52,7 +74,7 @@ function confirmBet(): void {
   lastBet = pendingBet;
   playChip();
   setBetSource($('pending-bet'));
-  send({ type: 'place_bet', amount: pendingBet });
+  send({ type: 'place_bet', amount: pendingBet, sideBets: sideBetsMsg() });
   renderControls();
 }
 
@@ -87,11 +109,15 @@ function onAllInClick(): void {
   allInTimer = null;
   allInArmed = false;
   actionBusy = true;
-  pendingBet = self.chips;
-  lastBet = self.chips;
+  // The whole stack goes in: the chosen side bets, and everything else on the main bet.
+  const minBet = app.state?.settings.minBet ?? 0;
+  if (self.chips - sideCost() < minBet) sideChoice.clear();
+  const amount = self.chips - sideCost();
+  pendingBet = amount;
+  lastBet = amount;
   playAllIn();
   setBetSource($('pending-bet'));
-  send({ type: 'place_bet', amount: self.chips });
+  send({ type: 'place_bet', amount, sideBets: sideBetsMsg() });
   renderControls();
 }
 
@@ -125,6 +151,7 @@ function onKey(ev: KeyboardEvent): void {
   if (allInArmed && !target?.closest('#allin-btn')) disarmAllIn();
   if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.repeat) return;
   if ($('screen-table').hidden) return;
+  if (document.querySelector('.modal-scrim:not([hidden])')) return; // a dialog is open: its keys are its own
   if (target && (target.closest('input, textarea, select, [contenteditable="true"]') !== null)) return;
   // Leave Enter and Space alone on buttons outside the controls (log, rules, leave...).
   const onOtherButton = target?.closest('button') && !target.closest('.table-controls');
@@ -166,6 +193,9 @@ export function initControls(): void {
   $('half-bet').addEventListener('click', (ev) => setPending(Math.floor(pendingBet / 2), ev.currentTarget as Element));
   $('double-bet').addEventListener('click', (ev) => setPending(pendingBet * 2, ev.currentTarget as Element));
   $('confirm-bet').addEventListener('click', confirmBet);
+  for (const kind of SIDE_BET_KINDS) {
+    $(`side-${kind}`).addEventListener('click', () => toggleSide(kind));
+  }
   $('allin-btn').addEventListener('click', onAllInClick);
   // Clicking anything else cancels the all-in question (capture, so it runs before that click's own handler).
   document.addEventListener(
@@ -193,8 +223,14 @@ export function renderControls(): void {
   const outOfChips = self.chips < s.settings.minBet && myBet === 0;
   const canBet = s.phase === 'betting' && seated && myBet === 0 && !outOfChips && s.deadline !== null;
   if (!canBet) pendingBet = 0;
-  const cap = betCap();
   // A new betting round starts with the last bet already in the box, ready to confirm.
+  if (canBet && prefilledRound !== s.round) {
+    // Side bets that no longer leave room for a minimum main bet are switched off.
+    for (const k of [...SIDE_BET_KINDS].reverse()) {
+      if (self.chips - sideCost() < s.settings.minBet) sideChoice.delete(k);
+    }
+  }
+  const cap = betCap();
   if (canBet && prefilledRound !== s.round) {
     prefilledRound = s.round;
     const again = Math.min(lastBet, cap);
@@ -220,7 +256,17 @@ export function renderControls(): void {
   betBar.hidden = !(s.phase === 'betting' && seated && myBet === 0 && s.deadline !== null);
   betBar.classList.toggle('out-of-chips', outOfChips);
   $('pending-bet').textContent = fmt(pendingBet);
-  $('bet-limits').textContent = `Min ${fmt(s.settings.minBet)}`;
+  const cost = sideCost();
+  $('bet-limits').textContent = cost > 0 ? `Min ${fmt(s.settings.minBet)} · sides +${fmt(cost)}` : `Min ${fmt(s.settings.minBet)}`;
+  for (const kind of SIDE_BET_KINDS) {
+    const b = $<HTMLButtonElement>(`side-${kind}`);
+    const on = sideChoice.has(kind);
+    b.setAttribute('aria-pressed', String(on));
+    // Switching one on must still leave room for a minimum main bet.
+    b.disabled = !canBet || busy || (!on && self.chips - cost - s.settings.minBet < s.settings.minBet);
+    const costEl = b.querySelector('.side-cost');
+    if (costEl) costEl.textContent = `+${fmt(s.settings.minBet)}`;
+  }
   for (const b of document.querySelectorAll<HTMLButtonElement>('.chip-btn')) {
     b.disabled = !canBet || busy || pendingBet >= cap;
   }

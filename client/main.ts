@@ -7,6 +7,7 @@ import { hydrateIcons, icon } from './icons.js';
 import { initPanels, renderLog, renderRules, resetPanels } from './panels.js';
 import { isMuted, playLose, playPayout, playWin, setMuted, unlockAudio } from './sound.js';
 import { renderTable, resetTable } from './table.js';
+import { initWallet, renderWallet } from './wallet.js';
 import { initWaiting, renderWaiting, resyncSettings } from './waiting.js';
 
 // ------------------------------------------------------------------ session
@@ -278,6 +279,7 @@ function render(): void {
     renderLog(s);
     renderRules(s);
   }
+  renderWallet(s, self);
   renderBorrow(s, self);
 }
 
@@ -287,6 +289,7 @@ hydrateIcons();
 initWaiting();
 initControls();
 initBorrow();
+initWallet();
 initPanels();
 showScreen(null);
 connect();

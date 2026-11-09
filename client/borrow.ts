@@ -3,7 +3,7 @@
 
 import type { PlayerView, TableState } from '../shared/types.js';
 import { app, me, send } from './app.js';
-import { $, fmt } from './dom.js';
+import { $, fmt, fmtSigned } from './dom.js';
 import { playChip } from './sound.js';
 import { betOf } from './table.js';
 
@@ -39,12 +39,13 @@ function close(): void {
 
 function open(s: TableState, self: PlayerView): void {
   const amount = s.settings.startingChips;
-  const owed = self.debt + amount;
-  $('borrow-text').textContent = `Borrow a buy-in of ${fmt(amount)} chips from the bank and keep playing? It goes on your tab.`;
+  // Borrowing counts as a loss: earnings drop to at least -amount, or stay where they are when already lower.
+  const after = Math.min(self.earnings, -amount);
+  $('borrow-text').textContent = `Borrow a buy-in of ${fmt(amount)} chips from the bank and keep playing?`;
   $('borrow-tab').textContent =
-    self.debt > 0
-      ? `You already owe ${fmt(self.debt)}. This takes your tab to ${fmt(owed)}.`
-      : `You'll owe ${fmt(amount)}. Your tab is kept with your name.`;
+    after === self.earnings
+      ? `Your earnings stay at ${fmtSigned(after)}. Withdraw chips later to bring them back up.`
+      : `Your earnings go from ${fmtSigned(self.earnings)} to ${fmtSigned(after)}. Withdraw chips later to bring them back up.`;
   $('borrow-yes').textContent = `Borrow ${fmt(amount)}`;
   $<HTMLButtonElement>('borrow-yes').disabled = busy;
   const scrim = $('borrow-scrim');

@@ -42,7 +42,7 @@ The stack is Node.js with TypeScript on both ends. One process serves the web pa
 
 ## Game rules
 
-V1 uses standard casino rules with one split, and no insurance, surrender or side bets. The host can change some rules before the first round.
+V1 uses standard casino rules with one split, two side bets (see below), and no insurance or surrender. The host can change some rules before the first round.
 
 | Rule | Value | Host can change |
 | --- | --- | --- |
@@ -53,7 +53,8 @@ V1 uses standard casino rules with one split, and no insurance, surrender or sid
 | Dealer hole card | Dealer peeks for blackjack when showing an ace or a 10-value card | No |
 | Double down | On any first two cards: the bet doubles and the player gets exactly one more card | Yes: any two cards, 9 to 11 only, or off |
 | Split | A pair can be split once for a second bet equal to the first; see below | Yes: on or off, default on |
-| Insurance, surrender, side bets | Not in v1 | No |
+| Side bets | Perfect Pairs and 21+3, always available; each stakes the minimum bet. See below | No |
+| Insurance, surrender | Not in v1 | No |
 
 Hand values:
 
@@ -71,6 +72,14 @@ Split:
 - One split only: the new hands can't be split again.
 - Each new hand gets a second card straight away (left hand first, then right hand), and the hands are played in turn, left hand first. The turn timer restarts for each hand.
 - Double after split is allowed and follows the double-down setting, per hand.
+
+Side bets:
+
+- Placed together with the main bet, never on their own. Each one stakes exactly the minimum bet, and the player needs chips for the main bet (at least the minimum) plus every side bet. A bet that uses all the player's chips, side bets included, counts as all in.
+- Both settle right after the deal, before the dealer peek, so a dealer blackjack doesn't change them. Winnings (and the stake) go straight back to the chips, and the result counts toward earnings. The log says `<name>: Perfect pair on Perfect Pairs, +250` or `<name> loses 21+3`.
+- **Perfect Pairs** (the player's first two cards): perfect pair, same suit, 25:1; colored pair, same color and other suit, 12:1; mixed pair, other color, 5:1. Anything else loses. Only the same rank counts as a pair, so K and Q is not one.
+- **21+3** (the player's first two cards plus the dealer's up card, as a three-card poker hand): suited trips 100:1, straight flush 40:1, three of a kind 30:1, straight 10:1, flush 5:1. Anything else loses. The ace plays low (A-2-3) or high (Q-K-A), but K-A-2 is not a straight.
+- A player who leaves before the deal gets the side bet stakes back with the main bet. A split does not change side bets.
 - Split aces get exactly one card each and stand automatically.
 - A 21 on a split hand is a normal 21, not a blackjack, so it pays 1:1.
 - Each hand is settled separately against the dealer.
@@ -86,7 +95,7 @@ Use a token rather than "connections from localhost". Tunnel traffic also arrive
 - **Settings:** locked once the host clicks Start, until the server restarts.
 - **Joining a game in progress:** the player goes straight to the table and takes a free seat from the next round. If every seat is full, they watch until one frees up.
 - **Kicking:** the host can kick any player. A kicked player sees a message and can't rejoin with that username until the server restarts.
-- **The game ends when the last player leaves** (or is dropped after not coming back). The table is wiped: settings go back to the defaults, and the round counter, shoe, log and kick list are cleared. Chips and debts stay saved per username. While the game is ended, `server_info` has `gameOpen: false`, the join screen says "This game has ended. Ask the host to create a new game.", and a join without the host token is refused with `game_closed`. Joining with the host link shows a "Create new game" button and starts a fresh game in the waiting room with that player as host. If the last player leaves in the middle of a hand, the game ends when the round is settled.
+- **The game ends when the last player leaves** (or is dropped after not coming back). The table is wiped: settings go back to the defaults, and the round counter, shoe, log and kick list are cleared. Chips and earnings stay saved per username. While the game is ended, `server_info` has `gameOpen: false`, the join screen says "This game has ended. Ask the host to create a new game.", and a join without the host token is refused with `game_closed`. Joining with the host link shows a "Create new game" button and starts a fresh game in the waiting room with that player as host. If the last player leaves in the middle of a hand, the game ends when the round is settled.
 - **The host's own seat:** the host plays like everyone else. If the host's tab closes, the game continues, and reopening the host link restores host controls.
 - **Ending the game:** stopping the server (Ctrl+C or closing its window) ends the game for everyone.
 
@@ -104,13 +113,14 @@ Use a token rather than "connections from localhost". Tunnel traffic also arrive
 
 Chips belong to a username, are saved on the host's PC, and survive server restarts. There are no passwords, which is fine among friends: anyone who types a username gets its chips.
 
-- **File:** `data/players.json` maps each username to its chip count, or to `{ "chips": n, "debt": n, "earnings": n }` when the player owes the bank or has earnings other than 0 (zero fields are left out). Usernames match ignoring case, and the display keeps the case first used.
+- **File:** `data/players.json` maps each username to its chip count, or to `{ "chips": n, "earnings": n }` when the player's earnings are not 0 (`earnings` is left out when 0). A `debt` field from older files is ignored, because the earnings already include it. Usernames match ignoring case, and the display keeps the case first used.
 - **New username:** starts with the starting-chips setting. A returning username keeps its saved chips, even if the host changed starting chips.
 - **Saving:** after each round is settled and when a player leaves. Write to a temporary file and then rename it, so a crash never leaves a half-written file.
-- **Reset chips:** a button that sets that player's chips back to the starting amount and clears their debt, after a confirmation. It is available in the waiting room and in the betting phase before the player bets.
-- **Earnings:** each player has their own running profit or loss from the cards, positive or negative, saved with their chips. It goes up and down with every settled hand (a doubled or split hand counts its full bet). Borrowing and paying back do not change it. It is shown as "Earnings +250" (green) or "Earnings −1,000" (red) under the player's name, and in the waiting room list. Everyone's money is their own: nobody can change another player's chips, debt or earnings. Reset chips sets earnings back to 0 (along with the chips and the debt).
-- **Pay back:** a player who owes can pay the debt down with their own chips, as much as the chips allow (the smaller of chips and debt), in the waiting room or in the betting phase before they bet. It lowers chips and debt by the same amount, so earnings stay the same, and logs `<name> pays back 1,000 and owes nothing`. It is a Pay back button in the waiting room and a Pay back link next to "owes" at the table. The server refuses it with `cannot_pay_back` when nothing is owed, there are no chips, or it is the wrong time.
-- **Out of chips:** a player whose chips are below the minimum bet cannot bet and sits out until they borrow. At the start of each betting phase they get an in-page prompt (not a browser dialog) offering to borrow a buy-in. "Borrow" adds the starting-chips amount to their chips and to their debt, and logs `<name> borrows 1,000 and now owes 1,000`. "Not now" (or Esc, or a click outside) closes the prompt for that round; a Borrow chips button in the betting bar opens it again. Chips are never negative: what the player owes is the debt, shown in red as "owes 1,000" next to their chips (at the table and in the waiting room). The debt is saved with the player, can grow with every loan, and is not paid back automatically. Borrowing is refused unless betting is open and the player is seated, has not bet and has fewer chips than the minimum bet (`cannot_borrow`).
+- **Reset chips:** a button that sets that player's chips back to the starting amount and their earnings back to 0, after a confirmation. It is available in the waiting room and in the betting phase before the player bets.
+- **Earnings:** each player has one number that says where they stand, saved with their chips. It starts at 0 on a new player, and the starting chips are not a debt. It goes up and down with every settled hand (a doubled or split hand counts its full bet), down when the player borrows (see Out of chips), and up when they withdraw. Below 0 the player is "in debt": that is what they owe. Everyone's money is their own: nobody can change another player's chips or earnings. Reset chips sets earnings back to 0.
+- **Wallet:** the player's own Balance (chips), Earnings (green above 0, red below) and a Withdraw button, shown top left of the table bar and next to the title in the waiting room, not next to the cards. Withdraw is only shown while earnings are below 0.
+- **Withdraw:** a player in debt (earnings below 0) can take chips out of their balance to pay it down, in the waiting room or in the betting phase before they bet. The Withdraw button opens an in-page dialog with an amount field, a ½ button (half of the most they can withdraw) and a Max button (the smaller of their chips and what they owe), and previews the new earnings and balance. Withdrawing lowers chips and raises earnings by the same amount (earnings −2,000, withdraw 1,000, earnings −1,000), and logs `<name> withdraws 1,000`. The server refuses it with `cannot_withdraw` when the amount is not a whole number of at least 1, is above the chips or the debt, the player is not in debt, or it is the wrong time.
+- **Out of chips:** a player whose chips are below the minimum bet cannot bet and sits out until they borrow. At the start of each betting phase they get an in-page prompt (not a browser dialog) offering to borrow a buy-in. "Borrow" adds the starting-chips amount to their chips and sets their earnings to at most minus that amount: a player who just lost everything is already at −1,000 and stays there, one who had withdrawn back to 0 drops to −1,000. It logs `<name> borrows 1,000`. "Not now" (or Esc, or a click outside) closes the prompt for that round; a Borrow chips button in the betting bar opens it again. Chips are never negative, and the loan is not paid back automatically: the player withdraws when they want to. Borrowing is refused unless betting is open and the player is seated, has not bet and has fewer chips than the minimum bet (`cannot_borrow`).
 - **Same username twice:** a username already at the table can't join again, unless it's the same player reconnecting with their token.
 - **Allowed usernames:** 1 to 16 characters made of letters, numbers, spaces, `-` and `_`.
 
@@ -119,7 +129,7 @@ Chips belong to a username, are saved on the host's PC, and survive server resta
 Each round runs through seven phases in order and then starts again from betting. The server owns the current phase, and clients only display it.
 
 1. **Betting:** each seated player bets anything from the minimum bet up to their own chips before the betting timer ends. Anyone who doesn't bet sits out the round.
-2. **Deal:** one card face up to each player in seat order, then the dealer's up card, then a second card to each player, then the dealer's hole card face down. Cards are dealt about 300 ms apart.
+2. **Deal:** one card face up to each player in seat order, then the dealer's up card, then a second card to each player, then the dealer's hole card face down. Cards are dealt about 300 ms apart. Side bets are settled as soon as the last card is down.
 3. **Dealer peek:** if the up card is an ace or a 10-value card, the server checks for dealer blackjack. If the dealer has it, the hole card is revealed and the round skips to settle.
 4. **Player turns:** in seat order, left to right. Each player chooses Hit, Stand, Double or Split until they stand, bust or reach 21. Blackjack and 21 stand automatically. After a split, the player plays the left hand to the end and then the right hand.
 5. **Dealer turn:** reveal the hole card, then draw until 17 or more, following the soft-17 rule. If every player has busted, the dealer draws no cards.
@@ -141,11 +151,11 @@ Every message is JSON with a `type` field, and the types are defined once in `/s
 | `set_ready` | ready (true or false) | Waiting room |
 | `update_settings` | settings | Host only, waiting room |
 | `start_game` | none | Host only, at least one player ready |
-| `place_bet` | amount | Betting phase |
+| `place_bet` | amount, optional `sideBets` (`{ pairs?: true, plus3?: true }`) | Betting phase |
 | `action` | hit, stand, double or split | That player's turn |
 | `reset_chips` | none | Waiting room, or betting phase before that player bets |
 | `borrow` | none | Betting phase, seated, no bet yet, chips below the minimum bet |
-| `pay_back` | none | Waiting room, or betting phase before that player bets; the player owes and has chips |
+| `withdraw` | `amount` (whole number) | Waiting room, or betting phase before that player bets; earnings below 0 and chips above 0; at most the smaller of chips and debt |
 | `kick_player` | playerId | Host only |
 
 **Server to client**
@@ -180,6 +190,7 @@ The game has three screens: join, waiting room and table. All of them are served
    - Action bar with Hit, Stand, Double and Split (shortcuts H, S, D and P), greyed out when not allowed. Split is always shown.
    - After a split, both hands sit side by side in the player's spot, each with its own total badge, bet chip and result. The hand being played is highlighted.
    - Betting bar with the label "Min 10" (the minimum bet), chip buttons for 10, 25, 100 and 500, plus Clear, ½, ×2, All in and Confirm. A player who is out of chips sees Borrow chips instead of Confirm.
+   - **Side bets:** a "Side bets" row in the betting bar with two toggle buttons, Perfect Pairs and 21+3, each showing its stake (+10). A toggle is disabled when turning it on would leave less than the minimum bet for the main bet. While side bets are on, the label reads "Min 10 · sides +20" and the bet box can hold at most the chips minus the side bets. The choice is remembered between rounds like the last bet, and side bets the chips no longer cover are switched off. All in puts the chosen side bets on and everything else on the main bet. Each seat shows small tags under the bet: `PAIRS 10` while waiting, then `PAIRS +250` in green on a win or a struck-through `21+3 −10` on a loss.
    - **Last bet:** each new betting round starts with the player's last bet already in the bet box (limited to their chips, and only if it is at least the minimum bet). They still press Confirm, and can change it first: Clear empties the box (and it stays empty that round), ½ halves the amount (rounded down), and ×2 doubles it. An all in counts as the last bet too. This is client-side only; the server is unchanged.
    - **All in:** the first click turns the button into a highlighted "Confirm all in (1,050)?" showing the player's full chips; a second click bets the whole stack and confirms it. It goes back to normal after 3 s without a second click, or when the player clicks anything else. It is enabled only when the player has at least the minimum bet. An all-in bet shows an "ALL IN" tag on its chip, and the log says "<name> goes all in (1,050)".
    - A banner with the round results.
@@ -245,7 +256,7 @@ Don't build this in Phase 1. Once Phase 1 works, a second prompt wraps it in an 
 
 Don't build any of these.
 
-- Insurance, surrender and side bets, which are planned for a later version
+- Insurance and surrender, which are planned for a later version
 - More than one table, or lobbies with codes
 - A separately deployed website
 - Chat
@@ -265,7 +276,8 @@ Phase 1 is finished when every item below passes. Claude Code should check each 
 - [ ] In two browser tabs, the host's setting changes show up for the other player, and settings lock after Start
 - [ ] Two players can play 5 full rounds with the correct chip counts after each
 - [ ] Chips survive a server restart, a new username gets the starting chips, and Reset chips works
-- [ ] A player with no chips gets the borrow prompt, can borrow and keep playing, and the debt shows as "owes N" and survives a restart
+- [ ] A player with no chips gets the borrow prompt, can borrow and keep playing, and the earnings drop to at most minus the buy-in and survive a restart
+- [ ] A player in debt sees Withdraw top left, can withdraw an amount, ½ or Max, and the earnings go up by what was withdrawn
 - [ ] A username already at the table is rejected, and a wrong password is rejected
 - [ ] The host can kick a player, who then can't rejoin with that username
 - [ ] The turn timer stands for an idle player, and the betting timer sits them out

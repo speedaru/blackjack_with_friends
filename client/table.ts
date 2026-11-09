@@ -1,6 +1,6 @@
 // The felt: dealer at the top, my hand large at the bottom, other players on an arc between.
 
-import { isHiddenCard, type HandView, type PlayerView, type PublicSettings, type TableState } from '../shared/types.js';
+import { isHiddenCard, type HandView, type SideBetKind, type PlayerView, type PublicSettings, type TableState } from '../shared/types.js';
 import { app, confirmKick, isHost, send, serverNow } from './app.js';
 import {
   betChip,
@@ -50,14 +50,6 @@ export function rulesText(st: PublicSettings): string {
   const pays = st.blackjackPayout === '3:2' ? '3 to 2' : '6 to 5';
   const soft = st.dealerHitsSoft17 ? 'Dealer hits soft 17' : 'Dealer stands on soft 17';
   return `Blackjack pays ${pays} · ${soft}`;
-}
-
-/** "Earnings +250" in green, or in red when negative. */
-export function earningsEl(earnings: number): HTMLElement {
-  const el = h('span', earnings > 0 ? 'earnings num is-up' : earnings < 0 ? 'earnings num is-down' : 'earnings num');
-  el.title = 'What you have won or lost at the table. Borrowing and paying back do not change it.';
-  el.append(h('span', 'earnings-label', 'Earnings'), document.createTextNode(` ${fmtSigned(earnings)}`));
-  return el;
 }
 
 function phaseText(s: TableState, self: PlayerView): { text: string; tone: '' | 'accent'; ring: boolean } {
@@ -187,6 +179,32 @@ function betSpot(s: TableState, p: PlayerView, index: number, pending: number): 
   return spot;
 }
 
+const SIDE_TAG: Record<SideBetKind, string> = { pairs: 'PAIRS', plus3: '21+3' };
+
+/** Small tags for the player's side bets: the stake while waiting, then the win or the loss. */
+function sideTags(s: TableState, p: PlayerView): HTMLElement | null {
+  if (p.sideBets.length === 0) return null;
+  const box = h('div', 'side-tags');
+  for (const sb of p.sideBets) {
+    const tag = h('span', 'side-tag num');
+    if (sb.delta === null) {
+      tag.textContent = `${SIDE_TAG[sb.kind]} ${fmt(sb.bet)}`;
+      tag.title = `Side bet of ${fmt(sb.bet)}`;
+    } else {
+      tag.classList.add(sb.delta > 0 ? 'win' : 'lost');
+      tag.textContent = `${SIDE_TAG[sb.kind]} ${fmtSigned(sb.delta)}`;
+      tag.title = sb.result ? `${sb.result}: ${fmtSigned(sb.delta)}` : `Lost ${fmt(sb.bet)}`;
+      const key = `side:${s.round}:${p.id}:${sb.kind}`;
+      if (!seenResults.has(key)) {
+        seenResults.add(key);
+        if (!firstRender) tag.classList.add('enter');
+      }
+    }
+    box.append(tag);
+  }
+  return box;
+}
+
 // ------------------------------------------------------------------ dealer
 
 function renderDealer(s: TableState, counts: { added: number }): void {
@@ -279,8 +297,9 @@ function seatEl(s: TableState, p: PlayerView, counts: { added: number }): HTMLEl
 
   const foot = h('div', 'seat-foot');
   foot.append(...ids.map((i) => betSpot(s, p, i, 0)), h('span', 'seat-chips num', fmt(p.chips)));
-  if (p.debt > 0) foot.append(h('span', 'owes num', `owes ${fmt(p.debt)}`));
   seat.append(foot);
+  const sides = sideTags(s, p);
+  if (sides) seat.append(sides);
 
   if (isHost()) {
     const kick = h('button', 'icon-btn seat-kick');
@@ -341,17 +360,10 @@ function renderMe(s: TableState, self: PlayerView, pendingBet: number, counts: {
     const pending = s.phase === 'betting' && betOf(self) === 0 ? pendingBet : 0;
     nodes.push(betSpot(s, self, 0, pending));
   }
+  const sides = sideTags(s, self);
+  if (sides) nodes.push(sides);
   const name = h('div', 'my-name');
-  name.append(h('span', 'name', self.name), h('span', 'dot', '·'), h('span', 'num', `${fmt(self.chips)} chips`));
-  if (self.debt > 0) name.append(h('span', 'owes num', `owes ${fmt(self.debt)}`));
-  if (self.debt > 0 && self.chips > 0 && s.phase === 'betting' && betOf(self) === 0) {
-    const pay = h('button', 'link-btn', 'Pay back');
-    pay.type = 'button';
-    pay.title = `Pay ${fmt(Math.min(self.chips, self.debt))} of your chips towards what you owe`;
-    pay.addEventListener('click', () => send({ type: 'pay_back' }));
-    name.append(pay);
-  }
-  name.append(earningsEl(self.earnings));
+  name.append(h('span', 'name', self.name));
   nodes.push(name);
   spot.replaceChildren(...nodes);
   spot.classList.toggle('is-split', split);

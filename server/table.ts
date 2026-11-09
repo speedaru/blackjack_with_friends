@@ -22,8 +22,12 @@ import {
   type RoundResultEntry,
   type ServerMsg,
   type Settings,
+  type SideBetKind,
   type TableState,
+  SIDE_BET_KINDS,
+  SIDE_BET_NAMES,
 } from '../shared/types.js';
+import { evaluateSideBet } from './sidebets.js';
 import { Shoe, mulberry32, randomSeed } from './deck.js';
 import {
   canDouble,
@@ -105,9 +109,11 @@ interface Player {
   key: string;
   token: string;
   chips: number;
-  /** Borrowed chips not paid back. Saved with the chips. */
-  debt: number;
-  /** Profit or loss from the cards, saved with the chips. Reset to 0 by Reset chips. */
+  /**
+   * How far ahead (or behind) the player is. Goes down with losses and with borrowing, and back up with
+   * wins and withdrawals, so a negative number is what the player owes. Saved with the chips.
+   * Reset to 0 by Reset chips.
+   */
   earnings: number;
   ready: boolean;
   seat: number | null;
@@ -120,6 +126,15 @@ interface Player {
   /** Index of the hand being played. */
   activeHand: number;
   inRound: boolean;
+  /** Side bets placed with the bet. Their stakes are taken with the bet and paid right after the deal. */
+  sideBets: SideBet[];
+}
+
+interface SideBet {
+  kind: SideBetKind;
+  bet: number;
+  result: string | null;
+  delta: number | null;
 }
 
 const LOG_LIMIT = 30;
@@ -253,15 +268,15 @@ export class Table {
       case 'start_game':
         return this.onStartGame(conn, p);
       case 'place_bet':
-        return this.onPlaceBet(conn, p, msg.amount);
+        return this.onPlaceBet(conn, p, msg.amount, msg.sideBets);
       case 'action':
         return this.onAction(conn, p, msg.action);
       case 'reset_chips':
         return this.onResetChips(conn, p);
       case 'borrow':
         return this.onBorrow(conn, p);
-      case 'pay_back':
-        return this.onPayBack(conn, p);
+      case 'withdraw':
+        return this.onWithdraw(conn, p, msg.amount);
       case 'kick_player':
         return this.onKick(conn, p, msg.playerId);
       default:
@@ -315,7 +330,6 @@ export class Table {
     const saved = this.store.get(username);
     const name = saved?.name ?? username;
     const chips = saved ? saved.chips : this.settings.startingChips;
-    const debt = saved ? saved.debt : 0;
     const earnings = saved ? saved.earnings : 0;
     if (!saved) this.store.set(name, chips);
 
@@ -325,7 +339,6 @@ export class Table {
       key,
       token: randomBytes(16).toString('hex'),
       chips,
-      debt,
       earnings,
       ready: false,
       seat: null,
@@ -335,6 +348,7 @@ export class Table {
       hands: [],
       activeHand: 0,
       inRound: false,
+      sideBets: [],
     };
     this.players.set(p.id, p);
     this.bound.set(conn, p.id);
@@ -417,10 +431,11 @@ export class Table {
   private removePlayer(p: Player): void {
     // A bet placed for a round that has not been dealt is given back.
     if (this.phase === 'betting' && hasBet(p)) {
-      p.chips += p.hands[0]!.bet;
+      p.chips += p.hands[0]!.bet + p.sideBets.reduce((sum, sb) => sum + sb.bet, 0);
       p.hands = [];
+      p.sideBets = [];
     }
-    this.store.set(p.name, p.chips, p.debt, p.earnings);
+    this.store.set(p.name, p.chips, p.earnings);
     this.store.save();
     this.clearHold(p);
     if (p.seat !== null) this.seats[p.seat] = null;
@@ -527,6 +542,7 @@ export class Table {
     p.hands = [];
     p.activeHand = 0;
     p.inRound = false;
+    p.sideBets = [];
   }
 
   private assignSeats(): void {
@@ -587,7 +603,7 @@ export class Table {
     if (able.length > 0 && able.every((p) => hasBet(p))) this.endBetting();
   }
 
-  private onPlaceBet(conn: Connection, p: Player, amount: unknown): void {
+  private onPlaceBet(conn: Connection, p: Player, amount: unknown, sideBets: unknown): void {
     if (this.phase !== 'betting' || this.deadline === null) {
       return this.sendError(conn, 'wrong_phase', 'Bets are only taken during the betting phase');
     }
@@ -600,11 +616,22 @@ export class Table {
     if (amount < minBet) {
       return this.sendError(conn, 'bet_invalid', `The minimum bet is ${minBet}`);
     }
-    if (amount > p.chips) return this.sendError(conn, 'insufficient_chips', 'You do not have enough chips');
-    const allIn = amount === p.chips;
-    p.chips -= amount;
+    if (sideBets !== undefined && (typeof sideBets !== 'object' || sideBets === null || Array.isArray(sideBets))) {
+      return this.sendError(conn, 'bet_invalid', 'Side bets must be an object');
+    }
+    const choice = (sideBets ?? {}) as Record<string, unknown>;
+    // Each side bet stakes the minimum bet.
+    const kinds = SIDE_BET_KINDS.filter((k) => choice[k] === true);
+    const total = amount + kinds.length * minBet;
+    if (total > p.chips) return this.sendError(conn, 'insufficient_chips', 'You do not have enough chips');
+    const allIn = total === p.chips;
+    p.chips -= total;
     p.hands = [newHand(amount, allIn)];
-    this.addLog(allIn ? `${p.name} goes all in (${amount.toLocaleString('en-US')})` : `${p.name} bets ${amount}`);
+    p.sideBets = kinds.map((kind) => ({ kind, bet: minBet, result: null, delta: null }));
+    const sides = kinds.length > 0 ? ` + ${kinds.map((k) => SIDE_BET_NAMES[k]).join(' and ')}` : '';
+    this.addLog(
+      allIn ? `${p.name} goes all in (${total.toLocaleString('en-US')})${sides}` : `${p.name} bets ${amount}${sides}`,
+    );
     this.broadcast();
     this.checkBettingDone();
   }
@@ -615,32 +642,40 @@ export class Table {
       return this.sendError(conn, 'cannot_reset', 'Chips can only be reset in the waiting room or before you bet');
     }
     p.chips = this.settings.startingChips;
-    p.debt = 0; // a reset is a fresh start, so any loan and the earnings are wiped too
-    p.earnings = 0;
-    this.store.set(p.name, p.chips, p.debt, p.earnings);
+    p.earnings = 0; // a reset is a fresh start, so the earnings (and what was owed) are wiped too
+    this.store.set(p.name, p.chips, p.earnings);
     this.store.save();
     this.addLog(`${p.name} reset their chips to ${p.chips}`);
     this.broadcast();
   }
 
-  /** Pays borrowed chips back out of the player's chips, as much as the chips allow. */
-  private onPayBack(conn: Connection, p: Player): void {
+  /**
+   * Takes chips out of the player's balance to pay down what they owe: the earnings go up by the same
+   * amount. Only possible while the earnings are negative, and never for more than the debt or the chips.
+   */
+  private onWithdraw(conn: Connection, p: Player, amount: number): void {
     const ok = this.phase === 'waiting' || (this.phase === 'betting' && !hasBet(p));
-    if (!ok) return this.sendError(conn, 'cannot_pay_back', 'You can only pay back in the waiting room or before you bet');
-    if (p.debt <= 0) return this.sendError(conn, 'cannot_pay_back', 'You do not owe anything');
-    if (p.chips <= 0) return this.sendError(conn, 'cannot_pay_back', 'You have no chips to pay back with');
-    const amount = Math.min(p.chips, p.debt);
+    if (!ok) return this.sendError(conn, 'cannot_withdraw', 'You can only withdraw in the waiting room or before you bet');
+    if (p.earnings >= 0) return this.sendError(conn, 'cannot_withdraw', 'You are not in debt');
+    if (p.chips <= 0) return this.sendError(conn, 'cannot_withdraw', 'You have no chips to withdraw');
+    if (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 1) {
+      return this.sendError(conn, 'cannot_withdraw', 'A withdrawal must be a whole number of chips');
+    }
+    const max = Math.min(p.chips, -p.earnings);
+    if (amount > max) return this.sendError(conn, 'cannot_withdraw', `You can withdraw at most ${max.toLocaleString('en-US')}`);
     p.chips -= amount;
-    p.debt -= amount;
-    this.store.set(p.name, p.chips, p.debt, p.earnings);
+    p.earnings += amount;
+    this.store.set(p.name, p.chips, p.earnings);
     this.store.save();
-    const n = (x: number) => x.toLocaleString('en-US');
-    this.addLog(p.debt > 0 ? `${p.name} pays back ${n(amount)} and still owes ${n(p.debt)}` : `${p.name} pays back ${n(amount)} and owes nothing`);
+    this.addLog(`${p.name} withdraws ${amount.toLocaleString('en-US')}`);
     this.broadcast();
-    this.checkBettingDone(); // paying back can leave the player without chips to bet
+    this.checkBettingDone(); // withdrawing can leave the player without chips to bet
   }
 
-  /** A player who is out of chips borrows a buy-in (the starting chips) and owes it. */
+  /**
+   * A player who is out of chips borrows a buy-in (the starting chips). The earnings drop to at most
+   * minus the buy-in, so borrowed chips are always owed: earnings already below that stay as they are.
+   */
   private onBorrow(conn: Connection, p: Player): void {
     if (this.phase !== 'betting' || this.deadline === null) {
       return this.sendError(conn, 'cannot_borrow', 'You can only borrow chips while bets are being placed');
@@ -651,11 +686,10 @@ export class Table {
     }
     const amount = this.settings.startingChips;
     p.chips += amount;
-    p.debt += amount;
-    this.store.set(p.name, p.chips, p.debt, p.earnings);
+    p.earnings = Math.min(p.earnings, -amount);
+    this.store.set(p.name, p.chips, p.earnings);
     this.store.save();
-    const n = (x: number) => x.toLocaleString('en-US');
-    this.addLog(`${p.name} borrows ${n(amount)} and now owes ${n(p.debt)}`);
+    this.addLog(`${p.name} borrows ${amount.toLocaleString('en-US')}`);
     this.broadcast();
   }
 
@@ -718,7 +752,29 @@ export class Table {
     this.setFlow(() => this.runDealSteps(steps, active, i + 1), this.timing.dealMs);
   }
 
+  /** Pays or takes every side bet. They only need the first two cards and the dealer's up card. */
+  private settleSideBets(active: Player[]): void {
+    const up = this.dealerCards[0]!;
+    for (const p of active) {
+      for (const sb of p.sideBets) {
+        const win = evaluateSideBet(sb.kind, p.hands[0]!.cards, up);
+        sb.delta = win ? sb.bet * win.multiplier : -sb.bet;
+        sb.result = win ? win.name : null;
+        // The stake was taken with the bet, so a win gives the stake back with the winnings.
+        if (win) p.chips += sb.bet + sb.delta;
+        p.earnings += sb.delta;
+        const name = SIDE_BET_NAMES[sb.kind];
+        this.addLog(win ? `${p.name}: ${win.name} on ${name}, +${sb.delta.toLocaleString('en-US')}` : `${p.name} loses ${name}`);
+      }
+    }
+    if (active.some((p) => p.sideBets.length > 0)) {
+      for (const p of active) this.store.set(p.name, p.chips, p.earnings);
+      this.store.save();
+    }
+  }
+
   private afterDeal(active: Player[]): void {
+    this.settleSideBets(active);
     for (const p of active) {
       if (isBlackjack(p.hands[0]!.cards)) {
         p.hands[0]!.status = 'blackjack';
@@ -931,7 +987,7 @@ export class Table {
         this.addLog(`${name} ${describeOutcome(r.outcome, r.delta)}`);
       });
     }
-    for (const p of this.players.values()) this.store.set(p.name, p.chips, p.debt, p.earnings);
+    for (const p of this.players.values()) this.store.set(p.name, p.chips, p.earnings);
     this.store.save();
 
     this.broadcast();
@@ -1015,12 +1071,12 @@ export class Table {
       chips: p.chips,
       ready: p.ready,
       connected: p.conn !== null,
-      debt: p.debt,
       earnings: p.earnings,
       seat: p.seat,
       hands: p.hands.map((hd, i) => this.handView(p, hd, i)),
       activeHand: p.activeHand,
       canSplit: myTurn && canSplit(hand.cards, this.settings.splitAllowed, p.chips, hand.bet, p.hands.length > 1),
+      sideBets: p.sideBets.map((sb) => ({ ...sb })),
     };
   }
 

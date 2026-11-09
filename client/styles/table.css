@@ -686,6 +686,49 @@
   min-height: 0;
 }
 
+/* Side bet tags next to the bet: the stake while it waits, the result once the deal settles it. */
+.side-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+}
+
+.side-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  white-space: nowrap;
+  background: rgba(6, 10, 8, 0.6);
+  border-radius: var(--r-pill);
+}
+
+.side-tag.win {
+  color: #06140b;
+  background: var(--win);
+}
+
+.side-tag.lost {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.side-tag.enter {
+  animation: rise-in var(--t-fade) var(--ease);
+}
+
+.seat .side-tag {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
 .seat .bet-chip {
   height: 26px;
   gap: 6px;
@@ -944,59 +987,110 @@
   }
 }
 
-/* Chips borrowed from the bank. */
-.owes {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--loss);
-}
-
-.my-name .owes::before {
-  content: '·';
-  margin-right: 6px;
-  color: var(--text-muted);
-}
-
 .my-name {
   flex-wrap: wrap;
   justify-content: center;
 }
 
-.earnings {
-  margin-left: 4px;
-  padding: 2px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border-radius: 999px;
+/* ----------------------------------------------------------------- wallet */
+
+/* Balance, earnings and Withdraw: top left of the table bar, and next to the title in the waiting room. */
+.wallet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.earnings.is-up {
+.wallet-stat {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  line-height: 1.15;
+}
+
+.wallet-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.wallet-value {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wallet-value.is-up {
   color: var(--accent);
 }
 
-.earnings.is-down {
+.wallet-value.is-down {
   color: var(--loss);
 }
 
-.earnings-label {
-  font-weight: 500;
-  opacity: 0.8;
+.wallet-withdraw {
+  height: 40px;
+  padding: 0 14px;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.link-btn {
-  padding: 2px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent);
-  background: none;
-  border: 0;
-  border-radius: 6px;
-  text-decoration: underline;
-  cursor: pointer;
+.wallet-withdraw[hidden] {
+  display: none;
 }
 
-.link-btn:hover {
-  background: var(--accent-soft);
+@media (max-width: 700px) {
+  .wallet {
+    gap: 5px;
+  }
+
+  .wallet-stat {
+    padding: 3px 7px;
+    border-radius: var(--r-sm);
+  }
+
+  .wallet-label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  .wallet-value {
+    font-size: 14px;
+  }
+
+  .wallet-withdraw {
+    height: 34px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  /* The wallet and the icons share the bar when they fit, and wrap onto two rows when they do not. */
+  .table-bar {
+    height: auto;
+    min-height: 48px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding: 4px 0;
+  }
+
+  .table-bar .icon-row {
+    margin-left: auto;
+  }
+
+  .table-bar .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* The wallet needs the room on a phone; the round number is also shown in the log. */
+  .round-label {
+    display: none;
+  }
 }

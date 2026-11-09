@@ -55,6 +55,7 @@
       <div class="wait-head">
         <h1>Waiting room</h1>
         <p id="wait-hint" class="muted"></p>
+        <div data-wallet-panel></div>
       </div>
 
       <div class="wait-grid">
@@ -66,7 +67,6 @@
           <ul id="player-list" class="player-list"></ul>
           <div class="wait-actions">
             <button id="ready-btn" type="button" class="ready-btn big">I'm ready</button>
-            <button id="payback-btn-wait" type="button" class="ghost big" hidden><span data-icon="check"></span><span id="payback-label">Pay back</span></button>
             <button id="reset-btn-wait" type="button" class="ghost big"><span data-icon="reset"></span>Reset chips</button>
             <button id="share-btn" type="button" class="ghost big"><span data-icon="share"></span>Share</button>
           </div>
@@ -97,6 +97,7 @@
     <!-- Table -->
     <section id="screen-table" class="table-screen" hidden>
       <header class="app-bar table-bar">
+        <div data-wallet-panel></div>
         <span id="round-label" class="round-label"></span>
         <div class="icon-row">
           <button class="icon-btn mute-btn" type="button" aria-label="Mute sound" title="Mute sound"></button>
@@ -146,6 +147,11 @@
             <span id="bet-ring-slot" class="bet-ring-slot"></span>
           </div>
           <div id="chip-buttons" class="chip-row" role="group" aria-label="Add chips to your bet"></div>
+          <div class="side-row" role="group" aria-label="Side bets">
+            <span class="bet-caption">Side bets</span>
+            <button id="side-pairs" type="button" class="ghost side-toggle" data-kind="pairs" aria-pressed="false" title="Perfect Pairs: your first two cards are a pair. Mixed 5:1, colored 12:1, perfect 25:1"><span>Perfect Pairs</span><span class="side-cost num"></span></button>
+            <button id="side-plus3" type="button" class="ghost side-toggle" data-kind="plus3" aria-pressed="false" title="21+3: your two cards and the dealer's up card. Flush 5:1, straight 10:1, three of a kind 30:1, straight flush 40:1, suited trips 100:1"><span>21+3</span><span class="side-cost num"></span></button>
+          </div>
           <div class="bet-actions">
             <button id="clear-bet" type="button" class="ghost bet-tool" title="Clear the bet"><span data-icon="close"></span><span>Clear</span></button>
             <button id="half-bet" type="button" class="ghost bet-tool" title="Halve the bet"><span class="x2">½</span></button>
@@ -196,6 +202,23 @@
           <button id="borrow-yes" type="button" class="primary big"></button>
         </div>
       </div>
+    </div>
+    <div id="withdraw-scrim" class="modal-scrim" hidden>
+      <form id="withdraw-form" class="modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-title" aria-describedby="withdraw-max-note" autocomplete="off">
+        <h2 id="withdraw-title">Withdraw</h2>
+        <p>Take chips out of your balance to pay down what you owe. Your earnings go up by the same amount.</p>
+        <div class="withdraw-field">
+          <input id="withdraw-amount" class="text-input num" type="text" inputmode="numeric" placeholder="Amount" aria-label="Amount to withdraw" />
+          <button id="withdraw-half" type="button" class="ghost" title="Half of the most you can withdraw">½</button>
+          <button id="withdraw-max" type="button" class="ghost" title="The most you can withdraw">Max</button>
+        </div>
+        <p id="withdraw-max-note" class="withdraw-note"></p>
+        <p id="withdraw-preview" class="modal-tab num"></p>
+        <div class="modal-actions">
+          <button id="withdraw-no" type="button" class="ghost big">Cancel</button>
+          <button id="withdraw-yes" type="submit" class="primary big">Withdraw</button>
+        </div>
+      </form>
     </div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
