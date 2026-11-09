@@ -4,6 +4,7 @@ import { isHiddenCard, type HandView, type SideBetKind, type PlayerView, type Pu
 import { app, confirmKick, isHost, send, serverNow } from './app.js';
 import {
   betChip,
+  chipColor,
   handEl,
   resetCardMemory,
   resultPill,
@@ -62,7 +63,14 @@ function betCircles(pending: PendingBet): HTMLElement {
     circle.disabled = !canPlace;
     circle.setAttribute('aria-label', `${SPOT_LABEL[spot]}: ${amount > 0 ? fmt(amount) : 'empty'}. Place the picked chip here`);
     circle.append(h('span', 'circle-label', SPOT_LABEL[spot]));
-    if (amount > 0) circle.append(betChip(amount, { pending: true }));
+    if (amount > 0) {
+      // The amount is printed on the chip itself. Long amounts use a smaller font so they stay inside it.
+      const disc = h('span', `chip-disc circle-disc ${chipColor(amount)}`);
+      const text = fmt(amount);
+      disc.style.setProperty('--chars', String(Math.max(text.length, 3)));
+      disc.append(h('span', 'disc-amount num', text));
+      circle.append(disc);
+    }
     circle.addEventListener('click', () => pending.onPlace(spot));
     wrap.append(circle);
     if (amount > 0) {

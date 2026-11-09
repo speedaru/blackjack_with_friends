@@ -95,6 +95,26 @@ function canPlace(spot: Spot): boolean {
   return spot === 'main' ? room > 0 : room >= selectedChip;
 }
 
+/** The bet as it stood before each change (chip placed, spot cleared, ½, ×2), newest last. Undo pops it. */
+type BetSnapshot = { main: number; pairs: number; plus3: number };
+const betHistory: BetSnapshot[] = [];
+
+function pushHistory(): void {
+  betHistory.push({ main: pendingBet, pairs: pendingSide.pairs, plus3: pendingSide.plus3 });
+}
+
+/** Cancels the last change to the bet being built. */
+function undoBet(): void {
+  if (!bettingOpen() || actionBusy) return;
+  const prev = betHistory.pop();
+  if (!prev) return;
+  pendingBet = prev.main;
+  pendingSide.pairs = prev.pairs;
+  pendingSide.plus3 = prev.plus3;
+  playChip();
+  refreshBet();
+}
+
 function setAmount(spot: Spot, value: number): void {
   const v = Math.max(0, Math.min(value, capFor(spot)));
   if (spot === 'main') pendingBet = v;
@@ -112,6 +132,7 @@ function refreshBet(): void {
 /** Puts the selected chip on a circle, sliding it there from its button. */
 function placeChip(spot: Spot): void {
   if (!canPlace(spot)) return;
+  pushHistory();
   setAmount(spot, amountOf(spot) + selectedChip);
   playChip();
   refreshBet();
@@ -122,6 +143,7 @@ function placeChip(spot: Spot): void {
 
 function clearSpot(spot: Spot): void {
   if (!bettingOpen() || actionBusy) return;
+  pushHistory();
   setAmount(spot, 0);
   refreshBet();
 }
@@ -132,6 +154,7 @@ function scaleBet(f: (n: number) => number): void {
   if (!self) return;
   const next = { main: f(pendingBet), pairs: f(pendingSide.pairs), plus3: f(pendingSide.plus3) };
   if (next.main + next.pairs + next.plus3 > self.chips) return;
+  pushHistory();
   pendingBet = next.main;
   pendingSide.pairs = next.pairs;
   pendingSide.plus3 = next.plus3;
@@ -286,6 +309,7 @@ export function initControls(): void {
     box.append(b);
   }
   $('bet-ring-slot').append(ringEl('bet-ring'));
+  $('undo-bet').addEventListener('click', undoBet);
   $('clear-bet').addEventListener('click', () => scaleBet(() => 0));
   $('half-bet').addEventListener('click', () => scaleBet((n) => Math.floor(n / 2)));
   $('double-bet').addEventListener('click', () => scaleBet((n) => n * 2));
@@ -320,6 +344,7 @@ export function renderControls(): void {
   if (!canBet) {
     pendingBet = 0;
     clearSides();
+    betHistory.length = 0;
   }
   // A new betting round starts with the last bet (and its side bets) already in place, ready to confirm.
   if (canBet && prefilledRound !== s.round) {
@@ -368,6 +393,7 @@ export function renderControls(): void {
     b.disabled = !canBet || busy;
   }
   const total = pendingBet + sides;
+  $<HTMLButtonElement>('undo-bet').disabled = !canBet || busy || betHistory.length === 0;
   $<HTMLButtonElement>('clear-bet').disabled = !canBet || busy || total === 0;
   $<HTMLButtonElement>('half-bet').disabled = !canBet || busy || pendingBet < 2;
   $<HTMLButtonElement>('double-bet').disabled = !canBet || busy || total === 0 || total * 2 > self.chips;

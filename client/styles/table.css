@@ -474,18 +474,24 @@
   text-transform: uppercase;
 }
 
-.bet-circle .bet-chip {
-  height: 26px;
-  gap: 5px;
-  padding: 0 8px 0 3px;
-  font-size: 12px;
-  opacity: 1;
+/* The amount sits inside the chip. --chars (set from the text length) shrinks long amounts to fit. */
+.bet-circle .circle-disc {
+  --d: 46px;
+  width: var(--d);
+  height: var(--d);
+  display: grid;
+  place-items: center;
+  border-width: 3px;
+  color: #fff;
+  font-size: min(13px, calc(34px / var(--chars, 3) * 1.7));
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
-.bet-circle .chip-disc {
-  width: 20px;
-  height: 20px;
-  border-width: 2px;
+.spot-main .bet-circle .circle-disc {
+  --d: 58px;
+  font-size: min(15px, calc(44px / var(--chars, 3) * 1.7));
 }
 
 @media (hover: hover) {
@@ -1162,6 +1168,17 @@
 
   .circle-label {
     font-size: 8px;
+  }
+
+  .bet-circle .circle-disc {
+    --d: 36px;
+    border-width: 2px;
+    font-size: min(11px, calc(26px / var(--chars, 3) * 1.7));
+  }
+
+  .spot-main .bet-circle .circle-disc {
+    --d: 46px;
+    font-size: min(13px, calc(36px / var(--chars, 3) * 1.7));
   }
 }
 
