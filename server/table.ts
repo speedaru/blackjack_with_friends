@@ -620,15 +620,28 @@ export class Table {
       return this.sendError(conn, 'bet_invalid', 'Side bets must be an object');
     }
     const choice = (sideBets ?? {}) as Record<string, unknown>;
-    // Each side bet stakes the minimum bet.
-    const kinds = SIDE_BET_KINDS.filter((k) => choice[k] === true);
-    const total = amount + kinds.length * minBet;
+    // Each side bet is 0 (none) or a whole number from the minimum bet up to the main bet.
+    const placed: SideBet[] = [];
+    for (const kind of SIDE_BET_KINDS) {
+      const v = choice[kind];
+      if (v === undefined || v === 0) continue;
+      const name = SIDE_BET_NAMES[kind];
+      if (typeof v !== 'number' || !Number.isInteger(v)) {
+        return this.sendError(conn, 'bet_invalid', `The ${name} side bet must be a whole number`);
+      }
+      if (v < minBet || v > amount) {
+        return this.sendError(conn, 'bet_invalid', `The ${name} side bet must be from ${minBet} up to your bet`);
+      }
+      placed.push({ kind, bet: v, result: null, delta: null });
+    }
+    const total = amount + placed.reduce((sum, sb) => sum + sb.bet, 0);
     if (total > p.chips) return this.sendError(conn, 'insufficient_chips', 'You do not have enough chips');
     const allIn = total === p.chips;
     p.chips -= total;
     p.hands = [newHand(amount, allIn)];
-    p.sideBets = kinds.map((kind) => ({ kind, bet: minBet, result: null, delta: null }));
-    const sides = kinds.length > 0 ? ` + ${kinds.map((k) => SIDE_BET_NAMES[k]).join(' and ')}` : '';
+    p.sideBets = placed;
+    const sides =
+      placed.length > 0 ? ` + ${placed.map((sb) => `${SIDE_BET_NAMES[sb.kind]} ${sb.bet.toLocaleString('en-US')}`).join(' and ')}` : '';
     this.addLog(
       allIn ? `${p.name} goes all in (${total.toLocaleString('en-US')})${sides}` : `${p.name} bets ${amount}${sides}`,
     );

@@ -569,55 +569,69 @@ describe('all in', () => {
 // --------------------------------------------------------------- side bets
 
 describe('side bets', () => {
-  it('stakes the minimum bet per side bet and pays them right after the deal', async () => {
+  it('takes custom side bet amounts with the bet and pays them right after the deal', async () => {
     // Deal order: Alex, Bob, dealer up, Alex, Bob, hole.
     // Alex 8H 8H is a perfect pair (25:1); Bob 5D 7D with the 6D up card is a straight flush (40:1).
     const rigged = cards('8H 5D 6D 8H 7D 10S');
     const { alex, bob } = await twoPlayers({ rigged, timing: { bettingMs: 5000, turnMs: 5000 } });
     alex.send({ type: 'start_game' });
     await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
-    alex.send({ type: 'place_bet', amount: 100, sideBets: { pairs: true, plus3: true } });
+    alex.send({ type: 'place_bet', amount: 100, sideBets: { pairs: 40, plus3: 10 } });
     const placed = await alex.waitForState((s) => betOf(alex.me(s)) === 100);
-    expect(alex.me(placed).chips).toBe(880);
-    expect(alex.me(placed).sideBets.map((sb) => [sb.kind, sb.bet])).toEqual([['pairs', 10], ['plus3', 10]]);
-    expect(placed.log.some((e) => e.text === 'Alex bets 100 + Perfect Pairs and 21+3')).toBe(true);
-    bob.send({ type: 'place_bet', amount: 50, sideBets: { plus3: true } });
+    expect(alex.me(placed).chips).toBe(850);
+    expect(alex.me(placed).sideBets.map((sb) => [sb.kind, sb.bet])).toEqual([['pairs', 40], ['plus3', 10]]);
+    expect(placed.log.some((e) => e.text === 'Alex bets 100 + Perfect Pairs 40 and 21+3 10')).toBe(true);
+    bob.send({ type: 'place_bet', amount: 50, sideBets: { pairs: 0, plus3: 20 } });
 
     const st = await alex.waitForState((s) => s.phase === 'player_turns');
     const a = alex.me(st);
-    expect(a.chips).toBe(880 + 10 + 250);
-    expect(a.earnings).toBe(240);
+    expect(a.chips).toBe(850 + 40 + 1000);
+    expect(a.earnings).toBe(990);
     expect(a.sideBets).toEqual([
-      { kind: 'pairs', bet: 10, result: 'Perfect pair', delta: 250 },
+      { kind: 'pairs', bet: 40, result: 'Perfect pair', delta: 1000 },
       { kind: 'plus3', bet: 10, result: null, delta: -10 },
     ]);
     const b = bob.me(st);
-    expect(b.chips).toBe(940 + 10 + 400);
-    expect(b.sideBets).toEqual([{ kind: 'plus3', bet: 10, result: 'Straight flush', delta: 400 }]);
-    expect(st.log.some((e) => e.text === 'Alex: Perfect pair on Perfect Pairs, +250')).toBe(true);
+    expect(b.chips).toBe(930 + 20 + 800);
+    expect(b.sideBets).toEqual([{ kind: 'plus3', bet: 20, result: 'Straight flush', delta: 800 }]);
+    expect(st.log.some((e) => e.text === 'Alex: Perfect pair on Perfect Pairs, +1,000')).toBe(true);
     expect(st.log.some((e) => e.text === 'Alex loses 21+3')).toBe(true);
     expect(alex.errors).toEqual([]);
     expect(bob.errors).toEqual([]);
   });
 
-  it('refuses side bets the chips do not cover, and counts them toward all in', async () => {
+  it('refuses side bets below the minimum, above the main bet, not whole, or not covered by the chips', async () => {
     const { alex, bob } = await twoPlayers({ timing: { bettingMs: 5000 } });
     alex.send({ type: 'start_game' });
     await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
-    const err = await alex.expectError({ type: 'place_bet', amount: 990, sideBets: { pairs: true, plus3: true } });
-    expect(err.code).toBe('insufficient_chips');
-    expect((await alex.expectError({ type: 'place_bet', amount: 100, sideBets: 'yes' as never })).code).toBe('bet_invalid');
-    alex.send({ type: 'place_bet', amount: 980, sideBets: { pairs: true, plus3: true } });
-    const st = await alex.waitForState((s) => betOf(alex.me(s)) === 980);
+    const bad = async (sideBets: unknown, amount = 100) =>
+      (await alex.expectError({ type: 'place_bet', amount, sideBets: sideBets as never })).code;
+    expect(await bad({ pairs: 5 })).toBe('bet_invalid'); // below the minimum of 10
+    expect(await bad({ plus3: 101 })).toBe('bet_invalid'); // above the main bet
+    expect(await bad({ pairs: 12.5 })).toBe('bet_invalid');
+    expect(await bad({ pairs: true })).toBe('bet_invalid');
+    expect(await bad('yes')).toBe('bet_invalid');
+    expect(await bad({ pairs: 400, plus3: 400 }, 400)).toBe('insufficient_chips');
+    expect(alex.me().chips).toBe(1000);
+    expect(alex.me().sideBets).toEqual([]);
+  });
+
+  it('counts side bets toward all in', async () => {
+    const { alex, bob } = await twoPlayers({ timing: { bettingMs: 5000 } });
+    alex.send({ type: 'start_game' });
+    await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
+    alex.send({ type: 'place_bet', amount: 500, sideBets: { pairs: 300, plus3: 200 } });
+    const st = await alex.waitForState((s) => betOf(alex.me(s)) === 500);
     expect(alex.me(st).chips).toBe(0);
     expect(alex.me(st).hands[0]!.allIn).toBe(true);
+    expect(st.log.some((e) => e.text === 'Alex goes all in (1,000) + Perfect Pairs 300 and 21+3 200')).toBe(true);
   });
 
   it('gives side bet stakes back to a player who leaves before the deal', async () => {
     const { srv, alex, bob } = await twoPlayers({ timing: { bettingMs: 5000 } });
     alex.send({ type: 'start_game' });
     await bob.waitForState((s) => s.phase === 'betting' && s.deadline !== null);
-    bob.send({ type: 'place_bet', amount: 100, sideBets: { pairs: true } });
+    bob.send({ type: 'place_bet', amount: 100, sideBets: { pairs: 60 } });
     await alex.waitForState((s) => s.players.some((p) => p.id === bob.id && betOf(p) === 100));
     bob.send({ type: 'leave' });
     await alex.waitForState((s) => !s.players.some((p) => p.id === bob.id));

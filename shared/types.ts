@@ -151,8 +151,11 @@ export const SIDE_BET_KINDS: SideBetKind[] = ['pairs', 'plus3'];
 
 export const SIDE_BET_NAMES: Record<SideBetKind, string> = { pairs: 'Perfect Pairs', plus3: '21+3' };
 
-/** Which side bets a player takes with their bet. Each one stakes the minimum bet. */
-export type SideBetChoice = Partial<Record<SideBetKind, boolean>>;
+/**
+ * Side bet amounts placed with the bet. A missing kind or 0 means no side bet; otherwise the amount is
+ * a whole number from the minimum bet up to the main bet.
+ */
+export type SideBetChoice = Partial<Record<SideBetKind, number>>;
 
 export interface SideBetView {
   kind: SideBetKind;

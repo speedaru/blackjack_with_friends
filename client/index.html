@@ -147,10 +147,12 @@
             <span id="bet-ring-slot" class="bet-ring-slot"></span>
           </div>
           <div id="chip-buttons" class="chip-row" role="group" aria-label="Add chips to your bet"></div>
-          <div class="side-row" role="group" aria-label="Side bets">
-            <span class="bet-caption">Side bets</span>
-            <button id="side-pairs" type="button" class="ghost side-toggle" data-kind="pairs" aria-pressed="false" title="Perfect Pairs: your first two cards are a pair. Mixed 5:1, colored 12:1, perfect 25:1"><span>Perfect Pairs</span><span class="side-cost num"></span></button>
-            <button id="side-plus3" type="button" class="ghost side-toggle" data-kind="plus3" aria-pressed="false" title="21+3: your two cards and the dealer's up card. Flush 5:1, straight 10:1, three of a kind 30:1, straight flush 40:1, suited trips 100:1"><span>21+3</span><span class="side-cost num"></span></button>
+          <div class="side-row" role="group" aria-label="Choose where your chips go">
+            <span class="bet-caption">Chips go to</span>
+            <button id="spot-main" type="button" class="ghost spot-btn" aria-pressed="true" title="Your main bet"><span>Main</span><span class="spot-amount num"></span></button>
+            <button id="side-pairs" type="button" class="ghost spot-btn" aria-pressed="false" title="Perfect Pairs side bet: your first two cards are a pair. Mixed 5:1, colored 12:1, perfect 25:1. From the minimum up to your bet"><span>Perfect Pairs</span><span class="spot-amount num"></span></button>
+            <button id="side-plus3" type="button" class="ghost spot-btn" aria-pressed="false" title="21+3 side bet: your two cards and the dealer's up card. Flush 5:1, straight 10:1, three of a kind 30:1, straight flush 40:1, suited trips 100:1. From the minimum up to your bet"><span>21+3</span><span class="spot-amount num"></span></button>
+            <span id="bet-hint" class="bet-hint" aria-live="polite"></span>
           </div>
           <div class="bet-actions">
             <button id="clear-bet" type="button" class="ghost bet-tool" title="Clear the bet"><span data-icon="close"></span><span>Clear</span></button>

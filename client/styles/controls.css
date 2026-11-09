@@ -139,29 +139,41 @@
   gap: 8px;
 }
 
-.side-toggle {
+.spot-btn {
   height: 36px;
   padding: 0 12px;
   gap: 8px;
 }
 
-.side-toggle .side-cost {
+.spot-btn .spot-amount {
+  min-width: 1.5em;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.spot-btn.has-amount .spot-amount {
+  color: var(--accent);
+}
+
+/* The spot the chips go to. */
+.spot-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.spot-btn:disabled {
+  opacity: 0.4;
+}
+
+.bet-hint {
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 
-.side-toggle[aria-pressed='true'] {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.side-toggle[aria-pressed='true'] .side-cost {
-  color: inherit;
-}
-
-.side-toggle:disabled {
-  opacity: 0.4;
+.bet-hint.warn {
+  color: var(--loss);
+  font-weight: 700;
 }
 
 .bet-panel.out-of-chips .side-row {
