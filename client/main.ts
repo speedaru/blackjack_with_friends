@@ -1,7 +1,7 @@
 import type { ClientMsg, ServerMsg } from '../shared/types.js';
 import { app, me, send, toast } from './app.js';
 import { initBorrow, renderBorrow } from './borrow.js';
-import { clearBusy, getPendingBet, initControls, renderControls } from './controls.js';
+import { clearBusy, getPending, initControls, renderControls } from './controls.js';
 import { $, storageGet, storageSet } from './dom.js';
 import { hydrateIcons, icon } from './icons.js';
 import { initPanels, renderLog, renderRules, resetPanels } from './panels.js';
@@ -275,7 +275,7 @@ function render(): void {
   } else {
     showScreen('table');
     renderControls(); // first, so a stale pending bet is cleared before the felt shows it
-    renderTable(s, self, getPendingBet());
+    renderTable(s, self, getPending());
     renderLog(s);
     renderRules(s);
   }

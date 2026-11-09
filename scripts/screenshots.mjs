@@ -178,9 +178,13 @@ async function run(browser, label, vp) {
     sam.send({ type: 'place_bet', amount: 25 });
     riley.send({ type: 'place_bet', amount: 100 });
     await alex.waitFor((s) => s.players.filter((p) => (p.hands[0]?.bet ?? 0) > 0).length === 3, 'bot bets');
+    // Pick a chip, then click a circle on the felt: 150 on the main bet and 25 on Perfect Pairs.
     await page.click('.chip-btn[data-value="100"]');
+    await page.click('.bet-circle[data-spot="main"]');
     await page.click('.chip-btn[data-value="25"]');
-    await page.click('.chip-btn[data-value="25"]');
+    await page.click('.bet-circle[data-spot="main"]');
+    await page.click('.bet-circle[data-spot="main"]');
+    await page.click('.bet-circle[data-spot="pairs"]');
     await shot('3-betting');
 
     await pressOrClick('Enter', '#confirm-bet', () => (alex.state.players.find((p) => p.name === 'Maya').hands[0]?.bet ?? 0) > 0);

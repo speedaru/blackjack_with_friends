@@ -421,6 +421,107 @@
   min-width: var(--cw);
 }
 
+/* ----------------------------------------------------------- bet circles */
+
+/* While betting: Perfect Pairs, the main bet and 21+3 as circles printed on the felt. */
+.bet-circles {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.bet-circle-wrap {
+  position: relative;
+  --size: 78px;
+}
+
+.bet-circle-wrap.spot-main {
+  --size: 96px;
+}
+
+.bet-circle {
+  width: var(--size);
+  height: var(--size);
+  padding: 6px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast, 120ms) var(--ease),
+    background var(--t-fast, 120ms) var(--ease),
+    transform var(--t-fast, 120ms) var(--ease);
+}
+
+.spot-main .bet-circle {
+  border-width: 3px;
+}
+
+.circle-label {
+  max-width: 100%;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.bet-circle .bet-chip {
+  height: 26px;
+  gap: 5px;
+  padding: 0 8px 0 3px;
+  font-size: 12px;
+  opacity: 1;
+}
+
+.bet-circle .chip-disc {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+@media (hover: hover) {
+  .bet-circle:hover:not(:disabled) {
+    border-color: var(--accent);
+    background: rgba(245, 185, 66, 0.12);
+    transform: scale(1.04);
+  }
+}
+
+.bet-circle:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.bet-circle:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.circle-clear {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.circle-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
 /* Whose turn it is: an outlined, softly lit area around the hand. */
 .my-spot.is-turn .hand-box::before,
 .dealer-spot.is-turn .hand-box::before,
@@ -1044,6 +1145,24 @@
 
 .wallet-withdraw[hidden] {
   display: none;
+}
+
+@media (max-width: 700px) {
+  .bet-circles {
+    gap: 10px;
+  }
+
+  .bet-circle-wrap {
+    --size: 64px;
+  }
+
+  .bet-circle-wrap.spot-main {
+    --size: 76px;
+  }
+
+  .circle-label {
+    font-size: 8px;
+  }
 }
 
 @media (max-width: 700px) {

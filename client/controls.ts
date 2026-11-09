@@ -6,7 +6,7 @@ import { openBorrowPrompt } from './borrow.js';
 import { slideFrom, ringEl } from './cards.js';
 import { $, fmt, h } from './dom.js';
 import { playAllIn, playChip } from './sound.js';
-import { betOf, setBetSource, updatePendingBet } from './table.js';
+import { betOf, setBetSource, updatePendingBet, type PendingBet, type Spot } from './table.js';
 
 const CHIP_VALUES = [10, 25, 100, 500];
 
@@ -17,10 +17,6 @@ let lastBet = 0;
 let prefilledRound = -1;
 let actionBusy = false;
 
-export function getPendingBet(): number {
-  return pendingBet;
-}
-
 /** A new state arrived, so any request we were waiting on has been answered. */
 export function clearBusy(): void {
   actionBusy = false;
@@ -28,10 +24,8 @@ export function clearBusy(): void {
 
 // ---------------------------------------------------------------- bet spots
 
-/** Where the chip buttons, Clear, ½ and ×2 put their chips: the main bet or one of the side bets. */
-type Spot = 'main' | SideBetKind;
-
-let selected: Spot = 'main';
+/** The chip value picked in the bet bar. Clicking a circle on the felt puts one of these there. */
+let selectedChip = CHIP_VALUES[0]!;
 /** Side bet amounts being built. 0 means no side bet. */
 const pendingSide: Record<SideBetKind, number> = { pairs: 0, plus3: 0 };
 /** The side bets confirmed with the last bet. They come back with it the next round. */
@@ -77,28 +71,86 @@ function sideProblem(minBet: number): string | null {
   return null;
 }
 
-function selectSpot(spot: Spot): void {
-  selected = spot;
-  renderControls();
+/** Whether this player can build a bet right now. */
+function bettingOpen(): boolean {
+  const s = app.state;
+  const self = me();
+  if (!s || !self) return false;
+  return (
+    s.phase === 'betting' &&
+    s.deadline !== null &&
+    self.seat !== null &&
+    betOf(self) === 0 &&
+    self.chips >= s.settings.minBet
+  );
 }
 
-/** Sets the amount on the selected spot. */
-function setSelected(value: number, from?: Element): void {
-  if (selected === 'main') return setPending(value, from);
-  pendingSide[selected] = Math.max(0, Math.min(value, capFor(selected)));
-  renderControls();
+/**
+ * Whether the selected chip can go on a spot. The main bet takes it while there is room (the last chip
+ * fills what is left); a side bet only takes it whole, and never above the main bet.
+ */
+function canPlace(spot: Spot): boolean {
+  if (!bettingOpen() || actionBusy) return false;
+  const room = capFor(spot) - amountOf(spot);
+  return spot === 'main' ? room > 0 : room >= selectedChip;
 }
 
-function setPending(value: number, from?: Element): void {
-  pendingBet = Math.max(0, Math.min(value, capFor('main')));
+function setAmount(spot: Spot, value: number): void {
+  const v = Math.max(0, Math.min(value, capFor(spot)));
+  if (spot === 'main') pendingBet = v;
+  else pendingSide[spot] = v;
+}
+
+/** Redraws the controls and the circles on the felt after the bet being built changed. */
+function refreshBet(): void {
   renderControls();
   const s = app.state;
   const self = me();
-  if (s && self && s.phase !== 'waiting') {
-    updatePendingBet(s, self, pendingBet);
-    const disc = document.querySelector('#my-spot .bet-chip.pending .chip-disc');
-    if (from && disc) slideFrom(disc as HTMLElement, from);
-  }
+  if (s && self && s.phase !== 'waiting') updatePendingBet(s, self, getPending());
+}
+
+/** Puts the selected chip on a circle, sliding it there from its button. */
+function placeChip(spot: Spot): void {
+  if (!canPlace(spot)) return;
+  setAmount(spot, amountOf(spot) + selectedChip);
+  playChip();
+  refreshBet();
+  const disc = document.querySelector(`#my-spot .bet-circle[data-spot="${spot}"] .chip-disc`);
+  const from = document.querySelector(`.chip-btn[data-value="${selectedChip}"]`);
+  if (disc && from) slideFrom(disc as HTMLElement, from);
+}
+
+function clearSpot(spot: Spot): void {
+  if (!bettingOpen() || actionBusy) return;
+  setAmount(spot, 0);
+  refreshBet();
+}
+
+/** Clear, ½ and ×2 change the whole bet: the main bet and the side bets together. */
+function scaleBet(f: (n: number) => number): void {
+  const self = me();
+  if (!self) return;
+  const next = { main: f(pendingBet), pairs: f(pendingSide.pairs), plus3: f(pendingSide.plus3) };
+  if (next.main + next.pairs + next.plus3 > self.chips) return;
+  pendingBet = next.main;
+  pendingSide.pairs = next.pairs;
+  pendingSide.plus3 = next.plus3;
+  refreshBet();
+}
+
+function selectChip(value: number): void {
+  selectedChip = value;
+  refreshBet();
+}
+
+/** The bet being built, as the felt draws it: one circle per spot. */
+export function getPending(): PendingBet {
+  const spots = (['pairs', 'main', 'plus3'] as Spot[]).map((spot) => ({
+    spot,
+    amount: amountOf(spot),
+    canPlace: canPlace(spot),
+  }));
+  return { open: bettingOpen(), spots, onPlace: placeChip, onClear: clearSpot };
 }
 
 function confirmBet(): void {
@@ -204,6 +256,13 @@ function onKey(ev: KeyboardEvent): void {
     confirmBet();
     return;
   }
+  // 1 to 4 pick a chip while betting.
+  const chipIndex = ['1', '2', '3', '4'].indexOf(key);
+  if (chipIndex >= 0 && !onOtherButton && !$('bet-bar').hidden && bettingOpen()) {
+    ev.preventDefault();
+    selectChip(CHIP_VALUES[chipIndex]!);
+    return;
+  }
   const KEYS: Record<string, ActionName> = { h: 'hit', s: 'stand', d: 'double', p: 'split' };
   const action: ActionName | null = KEYS[key] ?? null;
   if (!action || $('action-bar').hidden) return;
@@ -220,23 +279,17 @@ export function initControls(): void {
     const b = h('button', `chip-btn c${v}`);
     b.type = 'button';
     b.dataset.value = String(v);
-    b.setAttribute('aria-label', `Add ${v} to the selected bet`);
+    b.setAttribute('aria-label', `Pick the ${v} chip (key ${CHIP_VALUES.indexOf(v) + 1})`);
+    b.title = `Pick the ${v} chip, then click a spot on the table`;
     b.append(h('span', 'chip-face num', String(v)));
-    b.addEventListener('click', () => {
-      playChip();
-      setSelected(amountOf(selected) + v, b);
-    });
+    b.addEventListener('click', () => selectChip(v));
     box.append(b);
   }
   $('bet-ring-slot').append(ringEl('bet-ring'));
-  $('clear-bet').addEventListener('click', () => setSelected(0));
-  $('half-bet').addEventListener('click', (ev) => setSelected(Math.floor(amountOf(selected) / 2), ev.currentTarget as Element));
-  $('double-bet').addEventListener('click', (ev) => setSelected(amountOf(selected) * 2, ev.currentTarget as Element));
+  $('clear-bet').addEventListener('click', () => scaleBet(() => 0));
+  $('half-bet').addEventListener('click', () => scaleBet((n) => Math.floor(n / 2)));
+  $('double-bet').addEventListener('click', () => scaleBet((n) => n * 2));
   $('confirm-bet').addEventListener('click', confirmBet);
-  $('spot-main').addEventListener('click', () => selectSpot('main'));
-  for (const kind of SIDE_BET_KINDS) {
-    $(`side-${kind}`).addEventListener('click', () => selectSpot(kind));
-  }
   $('allin-btn').addEventListener('click', onAllInClick);
   // Clicking anything else cancels the all-in question (capture, so it runs before that click's own handler).
   document.addEventListener(
@@ -267,12 +320,10 @@ export function renderControls(): void {
   if (!canBet) {
     pendingBet = 0;
     clearSides();
-    selected = 'main';
   }
   // A new betting round starts with the last bet (and its side bets) already in place, ready to confirm.
   if (canBet && prefilledRound !== s.round) {
     prefilledRound = s.round;
-    selected = 'main';
     if (pendingBet === 0) {
       const again = Math.min(lastBet, self.chips);
       if (again >= minBet) {
@@ -285,8 +336,6 @@ export function renderControls(): void {
     }
   }
   const busy = actionBusy;
-  const cap = capFor(selected);
-  const here = amountOf(selected);
 
   // ---- all in: the button is enabled with at least the minimum bet; armed shows the confirm question
   const allInBtn = $<HTMLButtonElement>('allin-btn');
@@ -309,31 +358,19 @@ export function renderControls(): void {
   const sides = sideTotal();
   $('bet-limits').textContent = sides > 0 ? `Min ${fmt(minBet)} · total ${fmt(pendingBet + sides)}` : `Min ${fmt(minBet)}`;
 
-  // The spots: which one the chips go to, and how much each holds.
-  const spots: [Spot, string][] = [['main', 'spot-main'], ...SIDE_BET_KINDS.map((k): [Spot, string] => [k, `side-${k}`])];
-  for (const [spot, id] of spots) {
-    const b = $<HTMLButtonElement>(id);
-    b.setAttribute('aria-pressed', String(selected === spot));
-    b.classList.toggle('has-amount', amountOf(spot) > 0);
-    b.disabled = !canBet || busy;
-    const amt = b.querySelector('.spot-amount');
-    if (amt) amt.textContent = amountOf(spot) > 0 ? fmt(amountOf(spot)) : '–';
-  }
   const problem = canBet ? sideProblem(minBet) : null;
-  let hint = problem ?? '';
-  if (!hint && canBet && selected !== 'main' && pendingBet === 0) hint = 'Place your main bet first';
-  $('bet-hint').textContent = hint;
+  $('bet-hint').textContent = problem ?? 'Pick a chip, then click a spot on the table';
   $('bet-hint').classList.toggle('warn', problem !== null);
 
-  // Chips go to the selected spot. A side bet can't go above the main bet, so chips that would do that are off.
+  // The chip buttons pick which chip a click on the felt puts down.
   for (const b of document.querySelectorAll<HTMLButtonElement>('.chip-btn')) {
-    const v = Number(b.dataset.value);
-    const over = selected === 'main' ? here >= cap : here + v > cap;
-    b.disabled = !canBet || busy || over;
+    b.setAttribute('aria-pressed', String(Number(b.dataset.value) === selectedChip));
+    b.disabled = !canBet || busy;
   }
-  $<HTMLButtonElement>('clear-bet').disabled = !canBet || busy || here === 0;
-  $<HTMLButtonElement>('half-bet').disabled = !canBet || busy || here < 2;
-  $<HTMLButtonElement>('double-bet').disabled = !canBet || busy || here === 0 || here >= cap;
+  const total = pendingBet + sides;
+  $<HTMLButtonElement>('clear-bet').disabled = !canBet || busy || total === 0;
+  $<HTMLButtonElement>('half-bet').disabled = !canBet || busy || pendingBet < 2;
+  $<HTMLButtonElement>('double-bet').disabled = !canBet || busy || total === 0 || total * 2 > self.chips;
   $<HTMLButtonElement>('confirm-bet').disabled = !canBet || busy || pendingBet < minBet || problem !== null;
   const borrow = $<HTMLButtonElement>('borrow-btn');
   borrow.hidden = !outOfChips || s.deadline === null;

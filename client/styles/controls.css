@@ -131,39 +131,27 @@
   opacity: 0.32;
 }
 
+/* The picked chip: raised, with an accent ring. A click on the felt puts one of these down. */
+.chip-btn[aria-pressed='true'] {
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 0 3px var(--surface),
+    0 0 0 6px var(--accent),
+    0 8px 16px rgba(0, 0, 0, 0.35);
+}
+
+@media (hover: hover) {
+  .chip-btn[aria-pressed='true']:hover:not(:disabled) {
+    transform: translateY(-5px);
+  }
+}
+
 .side-row {
   grid-area: sides;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-.spot-btn {
-  height: 36px;
-  padding: 0 12px;
-  gap: 8px;
-}
-
-.spot-btn .spot-amount {
-  min-width: 1.5em;
-  font-size: var(--fs-xs);
-  font-weight: 800;
-  color: var(--text-muted);
-}
-
-.spot-btn.has-amount .spot-amount {
-  color: var(--accent);
-}
-
-/* The spot the chips go to. */
-.spot-btn[aria-pressed='true'] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-
-.spot-btn:disabled {
-  opacity: 0.4;
 }
 
 .bet-hint {
@@ -316,7 +304,7 @@
 
   .bet-panel {
     grid-template-columns: 1fr;
-    grid-template-areas: 'head' 'chips' 'actions';
+    grid-template-areas: 'head' 'chips' 'sides' 'actions';
     gap: 10px;
     padding: 12px;
   }

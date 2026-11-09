@@ -34,6 +34,51 @@ export function setBetSource(el: Element | null): void {
   betSource = el;
 }
 
+// ------------------------------------------------------------- bet circles
+
+/** A place on the felt chips can go: the main bet or one of the side bets. */
+export type Spot = 'main' | SideBetKind;
+
+/** The bet being built in the controls, as the felt draws it. */
+export interface PendingBet {
+  /** True while this player can build a bet: the circles are shown. */
+  open: boolean;
+  /** Left to right: Perfect Pairs, main, 21+3. */
+  spots: { spot: Spot; amount: number; canPlace: boolean }[];
+  onPlace(spot: Spot): void;
+  onClear(spot: Spot): void;
+}
+
+const SPOT_LABEL: Record<Spot, string> = { main: 'Bet', pairs: 'Perfect Pairs', plus3: '21+3' };
+
+/** The three betting circles under my hand. Clicking one puts the picked chip there. */
+function betCircles(pending: PendingBet): HTMLElement {
+  const row = h('div', 'bet-circles');
+  for (const { spot, amount, canPlace } of pending.spots) {
+    const wrap = h('div', `bet-circle-wrap spot-${spot}`);
+    const circle = h('button', 'bet-circle');
+    circle.type = 'button';
+    circle.dataset.spot = spot;
+    circle.disabled = !canPlace;
+    circle.setAttribute('aria-label', `${SPOT_LABEL[spot]}: ${amount > 0 ? fmt(amount) : 'empty'}. Place the picked chip here`);
+    circle.append(h('span', 'circle-label', SPOT_LABEL[spot]));
+    if (amount > 0) circle.append(betChip(amount, { pending: true }));
+    circle.addEventListener('click', () => pending.onPlace(spot));
+    wrap.append(circle);
+    if (amount > 0) {
+      const clear = h('button', 'icon-btn circle-clear');
+      clear.type = 'button';
+      clear.title = `Clear ${SPOT_LABEL[spot]}`;
+      clear.setAttribute('aria-label', `Clear ${SPOT_LABEL[spot]}`);
+      clear.append(icon('close'));
+      clear.addEventListener('click', () => pending.onClear(spot));
+      wrap.append(clear);
+    }
+    row.append(wrap);
+  }
+  return row;
+}
+
 export function resetTable(): void {
   firstRender = true;
   lastDeadline = null;
@@ -144,7 +189,7 @@ function handBox(
 }
 
 /** The spot under a hand: the result once settled, else the bet chip. */
-function betSpot(s: TableState, p: PlayerView, index: number, pending: number): HTMLElement {
+function betSpot(s: TableState, p: PlayerView, index: number): HTMLElement {
   const hd = p.hands[index] ?? NO_HAND;
   const spot = h('div', 'bet-spot');
   const result = resultPill(hd);
@@ -175,7 +220,6 @@ function betSpot(s: TableState, p: PlayerView, index: number, pending: number): 
     }
     return spot;
   }
-  if (pending > 0) spot.append(betChip(pending, { pending: true }));
   return spot;
 }
 
@@ -296,7 +340,7 @@ function seatEl(s: TableState, p: PlayerView, counts: { added: number }): HTMLEl
   }
 
   const foot = h('div', 'seat-foot');
-  foot.append(...ids.map((i) => betSpot(s, p, i, 0)), h('span', 'seat-chips num', fmt(p.chips)));
+  foot.append(...ids.map((i) => betSpot(s, p, i)), h('span', 'seat-chips num', fmt(p.chips)));
   seat.append(foot);
   const sides = sideTags(s, p);
   if (sides) seat.append(sides);
@@ -330,7 +374,7 @@ function renderOthers(s: TableState, self: PlayerView, counts: { added: number }
 
 // ------------------------------------------------------------------ my spot
 
-function renderMe(s: TableState, self: PlayerView, pendingBet: number, counts: { added: number }): void {
+function renderMe(s: TableState, self: PlayerView, pending: PendingBet, counts: { added: number }): void {
   const spot = $('my-spot');
   // With two hands only the hand being played is lit (see .active-hand), not the whole spot.
   spot.classList.toggle('is-turn', s.turn === self.id && self.hands.length < 2);
@@ -350,15 +394,17 @@ function renderMe(s: TableState, self: PlayerView, pendingBet: number, counts: {
       const col = h('div', active ? 'hand-col active' : 'hand-col');
       col.append(
         handBox(s, handKey(self, i), hd, 'lg', counts, { ring: active, active }),
-        betSpot(s, self, i, 0),
+        betSpot(s, self, i),
       );
       row.append(col);
     });
     nodes.push(row);
+  } else if (pending.open) {
+    // While I build a bet there are no cards yet, so the three circles take the hand's place.
+    nodes.push(betCircles(pending));
   } else {
     nodes.push(handBox(s, self.id, self.hands[0] ?? NO_HAND, 'lg', counts, { ring: myTurn, active: false }));
-    const pending = s.phase === 'betting' && betOf(self) === 0 ? pendingBet : 0;
-    nodes.push(betSpot(s, self, 0, pending));
+    nodes.push(betSpot(s, self, 0));
   }
   const sides = sideTags(s, self);
   if (sides) nodes.push(sides);
@@ -372,8 +418,8 @@ function renderMe(s: TableState, self: PlayerView, pendingBet: number, counts: {
 
 // -------------------------------------------------------------------- main
 
-/** Draws the felt for this state. `pendingBet` is the bet being built in the controls. */
-export function renderTable(s: TableState, self: PlayerView, pendingBet: number): void {
+/** Draws the felt for this state. `pending` is the bet being built in the controls. */
+export function renderTable(s: TableState, self: PlayerView, pending: PendingBet): void {
   const counts = { added: 0 };
 
   // The round number goes up when the cards are dealt, so betting is for the next round.
@@ -395,7 +441,7 @@ export function renderTable(s: TableState, self: PlayerView, pendingBet: number)
 
   $('felt-rules').textContent = rulesText(s.settings);
   renderOthers(s, self, counts);
-  renderMe(s, self, pendingBet, counts);
+  renderMe(s, self, pending, counts);
 
   runCardAnimations();
   if (!firstRender && counts.added > 0) playDeal();
@@ -413,8 +459,8 @@ export function renderTable(s: TableState, self: PlayerView, pendingBet: number)
 }
 
 /** Only the pending chip under my hand changes while I build a bet; no need to redraw everything. */
-export function updatePendingBet(s: TableState, self: PlayerView, pendingBet: number): void {
-  renderMe(s, self, pendingBet, { added: 0 });
+export function updatePendingBet(s: TableState, self: PlayerView, pending: PendingBet): void {
+  renderMe(s, self, pending, { added: 0 });
   tick();
 }
 
